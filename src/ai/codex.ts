@@ -22,6 +22,7 @@ export class CodexClient {
   async execute(
     prompt: string,
     context?: string,
+    workingDir?: string,
   ): Promise<{
     success: boolean
     output: string
@@ -29,7 +30,14 @@ export class CodexClient {
   }> {
     return new Promise((resolve) => {
       // Use --full-auto for non-interactive execution with workspace-write sandbox
-      const args = ['exec', '--profile', 'k2', '--full-auto', prompt]
+      const args = ['exec', '--profile', 'k2', '--full-auto']
+
+      // Set working directory if provided
+      if (workingDir) {
+        args.push('--cd', workingDir)
+      }
+
+      args.push(prompt)
 
       if (this.options.model) {
         args.push('--model', this.options.model)
@@ -62,11 +70,17 @@ export class CodexClient {
       let errorOutput = ''
 
       codex.stdout.on('data', (data) => {
-        output += data.toString()
+        const text = data.toString()
+        output += text
+        // Stream stdout to console in real-time
+        process.stdout.write(text)
       })
 
       codex.stderr.on('data', (data) => {
-        errorOutput += data.toString()
+        const text = data.toString()
+        errorOutput += text
+        // Stream stderr to console in real-time
+        process.stderr.write(text)
       })
 
       codex.on('close', (code) => {
@@ -88,10 +102,10 @@ export class CodexClient {
     })
   }
 
-  async generateCode(task: string, codebaseContext?: string): Promise<string | null> {
+  async generateCode(task: string, codebaseContext?: string, workingDir?: string): Promise<string | null> {
     try {
       const prompt = `Generate code to ${task}. ${codebaseContext ? `Context: ${codebaseContext}` : ''}`
-      const result = await this.execute(prompt)
+      const result = await this.execute(prompt, undefined, workingDir)
 
       if (result.success) {
         consola.success('Code generation successful')

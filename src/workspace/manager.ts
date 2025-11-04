@@ -72,6 +72,23 @@ export class WorkspaceManager {
     }
   }
 
+  async getCurrentBranch(repoDir: string): Promise<string> {
+    try {
+      // Try to get current branch name
+      const branch = await this.runGitCommand(repoDir, ['rev-parse', '--abbrev-ref', 'HEAD'])
+      return branch
+    } catch {
+      // If that fails (no commits yet), try symbolic-ref
+      try {
+        const branch = await this.runGitCommand(repoDir, ['symbolic-ref', '--short', 'HEAD'])
+        return branch
+      } catch (error) {
+        consola.warn('Could not determine current branch, using main as fallback')
+        return 'main' // fallback
+      }
+    }
+  }
+
   async commitChanges(repoDir: string, message: string): Promise<boolean> {
     try {
       await this.runGitCommand(repoDir, ['add', '.'])
@@ -332,15 +349,24 @@ export class WorkspaceManager {
     return null
   }
 
-  private async runGitCommand(cwd: string, args: string[]): Promise<string> {
+  private async runGitCommand(cwd: string, args: string[], silenceExpectedErrors: boolean = false): Promise<string> {
     return new Promise((resolve, reject) => {
       consola.debug('Running git command:', 'git', args.join(' '))
 
       // Use execFile which doesn't require a shell
       execFile('/usr/bin/git', args, { cwd }, (error, stdout, stderr) => {
         if (error) {
-          consola.error('Git execFile error:', error)
-          consola.error('Git stderr:', stderr)
+          // Don't log errors that are expected (like checking HEAD on empty repo)
+          const isExpectedError =
+            silenceExpectedErrors || (args[0] === 'rev-parse' && stderr.includes('unknown revision or path'))
+
+          if (!isExpectedError) {
+            consola.error('Git execFile error:', error)
+            consola.error('Git stderr:', stderr)
+          } else {
+            consola.debug('Git command failed (expected):', args.join(' '))
+          }
+
           reject(new Error(`Git command failed: ${stderr || error.message}`))
         } else {
           consola.debug('Git stdout:', stdout.trim())

@@ -82,6 +82,90 @@ export class GitHubMaintainBot {
     return { ...this.status }
   }
 
+  // Public method to manually scan for issues
+  async scanIssues(): Promise<Issue[]> {
+    consola.info('Scanning for assigned issues...')
+    const issues = await this.issueManager.getAssignedIssues()
+
+    if (issues.length === 0) {
+      consola.info('No assigned issues found')
+      return []
+    }
+
+    consola.success(`Found ${issues.length} assigned issue(s)`)
+
+    for (const issue of issues) {
+      consola.info(`Issue #${issue.number}: ${issue.title}`)
+      consola.info(`  Repository: ${issue.repository.owner.login}/${issue.repository.name}`)
+      consola.info(`  State: ${issue.state}`)
+      consola.info(`  Body: ${issue.body?.substring(0, 100)}${issue.body && issue.body.length > 100 ? '...' : ''}`)
+
+      // Analyze if we can handle it
+      const analysis = await this.issueManager.analyzeIssue(issue)
+      consola.info(`  Can handle: ${analysis.canHandle}`)
+      if (analysis.canHandle) {
+        consola.info(`  Tasks found: ${analysis.tasks.length}`)
+        analysis.tasks.forEach((task, idx) => {
+          consola.info(`    ${idx + 1}. ${task.substring(0, 80)}${task.length > 80 ? '...' : ''}`)
+        })
+      }
+      consola.info('') // Empty line for readability
+    }
+
+    return issues
+  }
+
+  // Public method to manually create PR for an issue
+  async createPullRequest(issueNumber: number, owner: string, repo: string): Promise<void> {
+    consola.info(`Creating PR for issue #${issueNumber} in ${owner}/${repo}...`)
+
+    // Find the issue
+    const issues = await this.issueManager.getAssignedIssues()
+    const issue = issues.find(
+      (i) => i.number === issueNumber && i.repository.owner.login === owner && i.repository.name === repo,
+    )
+
+    if (!issue) {
+      consola.error(`Issue #${issueNumber} not found or not assigned to you`)
+      return
+    }
+
+    await this.createPullRequestForIssue(issue)
+  }
+
+  // Public method to manually commit and push changes
+  async commitAndPush(issueNumber: number, owner: string, repo: string, commitMessage: string): Promise<void> {
+    consola.info(`Committing changes for issue #${issueNumber} in ${owner}/${repo}...`)
+
+    const repoDir = await this.workspaceManager.cloneRepository(owner, repo)
+    if (!repoDir) {
+      consola.error('Could not access repository')
+      return
+    }
+
+    // Get current branch
+    const currentBranch = await this.workspaceManager.getCurrentBranch(repoDir)
+    consola.info(`Current branch: ${currentBranch}`)
+
+    // Commit changes
+    const committed = await this.workspaceManager.commitChanges(repoDir, commitMessage)
+    if (!committed) {
+      consola.error('Failed to commit changes')
+      return
+    }
+
+    consola.success('Changes committed successfully')
+
+    // Push branch
+    const pushed = await this.workspaceManager.pushBranch(repoDir, currentBranch)
+    if (!pushed) {
+      consola.error('Failed to push changes')
+      return
+    }
+
+    consola.success(`Changes pushed to branch: ${currentBranch}`)
+  }
+
   private async checkAndProcessIssues(): Promise<void> {
     try {
       consola.debug('Checking for new issues...')
@@ -182,7 +266,7 @@ export class GitHubMaintainBot {
 
       // Generate code for the task
       const codebaseContext = await this.getCodebaseContext(repoDir)
-      const generatedCode = await this.codexClient.generateCode(task, codebaseContext)
+      const generatedCode = await this.codexClient.generateCode(task, codebaseContext, repoDir)
 
       if (!generatedCode) {
         await this.issueManager.updateIssueStatus(
