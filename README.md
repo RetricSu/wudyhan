@@ -1,103 +1,75 @@
-# CLI TypeScript Starter
+# GitHub Maintain Bot
 
-An all-inclusive starter kit for crafting command-line interfaces (CLI) using TypeScript, driven by Node.js. This kit is
-meticulously designed to kick-start your development journey with a solid foundation, encompassing features such as
-argument parsing, environment setup, logging, testing suites, as well as code formatting and linting capabilities.
+A self-hosted GitHub maintenance bot that autonomously monitors assigned issues, performs coding tasks using AI, and submits pull requests. Built with TypeScript and designed for continuous repository maintenance with **robust crash recovery and resumable workflows**.
 
-## Features
+## ✨ Key Features
 
-This template incorporates several key tools and libraries to enhance your CLI development experience:
+- **🤖 Autonomous Issue Processing**: Automatically handles GitHub issues assigned to the bot
+- **🔄 Crash Recovery**: Resumes workflows from the last successful step after crashes
+- **🔁 Smart Retries**: Exponential backoff with jitter for transient failures
+- **💾 Task Persistence**: SQLite-based state management for reliability
+- **🎯 Idempotent Operations**: Safe to run multiple times without duplicating work
+- **📊 Full Observability**: Detailed logging and GitHub issue updates
+- **⚡ Concurrent Processing**: Handle multiple issues simultaneously with worker locks
+- **🛡️ Error Handling**: Dead letter queue for permanent failures
 
-- **[Yargs](https://github.com/yargs/yargs):** A powerful library for parsing command-line arguments.
-- **[Dotenv](https://github.com/motdotla/dotenv):** Loads environment variables from a `.env` file into `process.env`,
-  making it easy to manage application configuration.
-- **[PicoColors](https://github.com/alexeyraspopov/picocolors):** Lightweight and fast library for styling terminal
-  text.
-- **[Consola](https://github.com/unjs/consola):** 🐨Elegant Console Logger for Node.js and Browser
-- **[Jest](https://jestjs.io/):** A delightful JavaScript Testing Framework with a focus on simplicity.
-- **[TS-Node](https://typestrong.org/ts-node/):** TypeScript execution and REPL for Node.js.
-- **[TSUP](https://tsup.egoist.dev/):** The simplest and fastest way to bundle your TypeScript libraries.
-- **[Prettier](https://prettier.io/):** An opinionated code formatter that supports many languages and integrates with
-  most editors.
-- **[ESLint](https://eslint.org/):** A pluggable and configurable linter tool for identifying and reporting on patterns
-  in JavaScript and TypeScript.
-- **[giget](https://github.com/unjs/giget)** ✨ Download templates and git repositories with pleasure!
+## Architecture
+
+The bot uses a **stateful workflow engine** with the following components:
+
+- **Task State Machine**: Each issue → PR job is a persistent task
+- **Workflow Steps**: Plan → Branch → Codex Generate → Test → Commit → PR
+- **Worker Process**: Claims and executes tasks with atomic locks
+- **Retry Manager**: Handles transient failures with exponential backoff
+- **SQLite Database**: Stores all task state and checkpoints
+
+📖 [Read the full architecture documentation](./docs/ARCHITECTURE.md)
 
 ## Prerequisites
 
-Before you begin, ensure you have installed [Node.js](https://nodejs.org/) and [pnpm](https://pnpm.io/) on your system.
+- [Node.js](https://nodejs.org/) (v20 or higher)
+- [pnpm](https://pnpm.io/)
+- [Codex CLI](https://github.com/openai/codex) (optional, for AI code generation)
+- GitHub Personal Access Token with repo permissions
 
-## Getting Started
+## Installation
 
-To start using this CLI TypeScript starter, follow these steps:
+### 1. Clone the repository
 
-### 1. Make a new project
-
-```sh
-npx cli-typescript-starter create my-project
-```
-
-or
-
-```sh
-npx giget@latest gh:kucherenko/cli-typescript-starter my-project
-```
-
-or
-
-```sh
-pnpm exec degit kucherenko/cli-typescript-starter my-project
+```bash
+git clone <your-repo-url>
+cd wudyhan
 ```
 
 ### 2. Install dependencies
 
-Navigate to your project directory and install the necessary dependencies:
-
-```sh
-cd my-project && pnpm install
+```bash
+pnpm install
 ```
 
-### 3. Configure the package
+### 3. Configure environment
 
-Update the `package.json` to reflect your project's details:
+Create a `.env` file in the root directory:
 
-- Rename the package:
-  ```json
-  "name": "my-project",
-  ```
-- Set the command name:
-  ```json
-  "bin": {
-    "my-project": "./bin/run"
-  }
-  ```
+```env
+# GitHub Configuration
+GITHUB_TOKEN=ghp_your_github_token_here
 
-### 4. Set up environment variables
+# Codex AI Configuration (optional)
+CODEX_API_KEY=your_codex_api_key_here
 
-Create a `.env` file in the root directory and configure your environment variables as needed.
+# Bot Configuration
+MAX_CONCURRENT=3
+MAX_RETRIES=5
+POLL_INTERVAL=10000
+LOG_LEVEL=info
+```
 
-## Usage
+### 4. Build the project
 
-This starter comes equipped with several predefined scripts to facilitate development, alongside sample commands to
-demonstrate the capabilities of the CLI application.
-
-### Running Commands
-
-- In development mode, use `pnpm start [command name]` to run any command. This utilizes `ts-node` for a seamless
-  development experience.
-- In production, execute the CLI application directly with `my-project [command name]` to run the desired
-  command from the built project (the name of command should be provided in `package.json` in `bin`).
-
-### Sample Commands
-
-- **`info`**: Prints information about the current system and Node.js configuration. This command is useful for
-  verifying the environment in which the CLI is running.
-- **`greeting`**: Demonstrates interactive prompts within the CLI. It's a great way to see how user inputs can be
-  handled in a friendly manner.
-- **`create`**: Create new project based on `cli-typescript-starter`.
-
-All commands are located in the `src/commands/` folder. This organization makes it easy to find and modify commands or
-add new ones as needed.
+```bash
+pnpm build
+```
 
 ### Script Commands
 
@@ -126,69 +98,324 @@ This project utilizes `semantic-release` to automate version management and the 
 process. `Semantic-release` automates the workflow of releasing new versions, including the generation of detailed
 release notes based on commit messages that follow the conventional commit format.
 
-The publishing process is triggered automatically when changes are merged into the main branch. Here's how it works:
+## Usage
 
-1. **Automated Versioning:** Based on the commit messages, `semantic-release` determines the type of version change (
-   major, minor, or patch) and updates the version accordingly.
-2. **Release Notes:** It then generates comprehensive release notes detailing new features, bug fixes, and any breaking
-   changes, enhancing clarity and communication with users.
-3. **NPM Publishing:** Finally, `semantic-release` publishes the new version to the NPM registry and creates a GitHub
-   release with the generated notes.
+### Start the Bot
 
-To ensure a smooth `semantic-release` process:
+Run the bot in development mode:
 
-- Merge feature or fix branches into the main branch following thorough review and testing.
-- Use conventional commit messages to help `semantic-release` accurately determine version changes and generate
-  meaningful release notes.
-- Configure an NPM access token as a GitHub secret under the name `NPM_TOKEN` for authentication during the publication
-  process.
+```bash
+pnpm start run
+```
 
-By integrating `semantic-release`, this project streamlines its release process, ensuring that versions are managed
-efficiently and that users are well-informed of each update through automatically generated release notes.
+Or in production:
+
+```bash
+node dist/run.js run
+```
+
+The bot will:
+
+1. Scan for assigned GitHub issues every 60 seconds (configurable)
+2. Create tasks for new issues
+3. Execute tasks through the workflow pipeline
+4. Post status updates to issues
+5. Create pull requests when ready
+
+### CLI Commands
+
+#### Monitor Tasks
+
+```bash
+# List all tasks
+pnpm start tasks
+
+# Filter by state
+pnpm start tasks --state=pending
+pnpm start tasks --state=in_progress
+pnpm start tasks --state=completed
+pnpm start tasks --state=failed
+pnpm start tasks --state=dead_letter
+
+# Show task details
+pnpm start task-status <task-id>
+
+# View task logs
+pnpm start task-logs <task-id>
+```
+
+#### Manual Operations
+
+```bash
+# Manually scan for issues
+pnpm start scan
+
+# Retry a failed task
+pnpm start task-retry <task-id>
+
+# Check bot status
+pnpm start status
+```
+
+### Configuration
+
+Create or edit `.env`:
+
+```env
+# Required: GitHub Personal Access Token
+GITHUB_TOKEN=ghp_xxxxxxxxxxxxx
+
+# Optional: Codex API Key
+CODEX_API_KEY=sk-xxxxxxxxxxxxx
+
+# Bot Settings (defaults shown)
+MAX_CONCURRENT=3              # Max concurrent tasks
+MAX_RETRIES=5                 # Max retry attempts
+POLL_INTERVAL=10000           # Worker poll interval (ms)
+SCAN_INTERVAL=60000           # Issue scan interval (ms)
+LOCK_LEASE_DURATION=300000    # Task lock duration (ms)
+LOG_LEVEL=info                # debug | info | warn | error
+```
+
+## How It Works
+
+### Workflow Steps
+
+Each task goes through these steps:
+
+1. **Plan** 📋
+
+   - Analyzes the issue content
+   - Creates a task plan
+   - Determines if issue can be handled automatically
+
+2. **Branch** 🌿
+
+   - Creates deterministic branch: `bot/issue-<num>/<fingerprint>`
+   - Idempotent: reuses branch if exists
+
+3. **Codex Generate** 🤖
+
+   - Runs codex to generate code changes
+   - Saves job ID for resumability
+   - Polls status until completion
+
+4. **Run Tests** 🧪
+
+   - Executes test suite
+   - Validates changes
+
+5. **Commit & Push** 📤
+
+   - Commits changes with descriptive message
+   - Pushes to remote branch
+   - Idempotent: detects if already pushed
+
+6. **Create PR** 🔀
+   - Creates pull request
+   - Links to original issue
+   - Idempotent: reuses existing PR if found
+
+### Crash Recovery
+
+When the bot crashes:
+
+```
+Task: in_progress, currentStep: codex_generate, codexJobId: abc123
+        ↓
+   [Bot crashes]
+        ↓
+   [Bot restarts]
+        ↓
+Worker claims task with expired lock
+        ↓
+Resumes from currentStep (codex_generate)
+        ↓
+Polls codex status abc123
+        ↓
+Continues workflow
+```
+
+### Retry Logic
+
+Failed steps are retried with exponential backoff:
+
+```
+Attempt 1: Wait 1s
+Attempt 2: Wait 2s
+Attempt 3: Wait 4s
+Attempt 4: Wait 8s
+Attempt 5: Wait 16s
+After 5 attempts: Move to dead_letter queue
+```
+
+Only transient errors are retried:
+
+- Network timeouts
+- Rate limiting (429)
+- Server errors (502, 503, 504)
+- Codex temporary failures
+
+Permanent errors go directly to dead letter:
+
+- Authentication errors (401, 403)
+- Not found (404)
+- Validation errors (400, 422)
+
+## Database
+
+Tasks and logs are stored in `./data/tasks.db` (SQLite).
+
+### Inspect Database
+
+```bash
+# Install sqlite3
+brew install sqlite3  # macOS
+sudo apt install sqlite3  # Linux
+
+# Query tasks
+sqlite3 ./data/tasks.db "SELECT id, state, current_step, retry_count FROM tasks;"
+
+# Query logs
+sqlite3 ./data/tasks.db "SELECT * FROM task_logs WHERE task_id='<task-id>' ORDER BY created_at DESC LIMIT 10;"
+```
+
+### Reset Database
+
+```bash
+# WARNING: Deletes all task history
+rm -rf ./data/tasks.db
+```
 
 ## Development
 
-To contribute to this project or customize it for your needs, consider the following guidelines:
+### Project Structure
 
-1. **Code Styling:** Follow the predefined code style, using Prettier for formatting and ESLint for linting, to ensure
-   consistency.
-2. **Commit Messages:** We use `commitizen` and `commitlint` to ensure our commit messages are consistent and follow the
-   conventional commit format, recommended by `@commitlint/config-conventional`. To make a commit, you can
-   run `pnpm commit`, which will guide you through creating a conventional commit message.
-3. **Testing:** Write unit tests for new features or bug fixes using Jest. Make sure to run tests before pushing any
-   changes.
-4. **Environment Variables:** Use the `.env` file for local development. For production, ensure you configure the
-   environment variables in your deployment environment.
-5. **Husky Git Hooks:** This project utilizes Husky to automate linting, formatting, and commit message verification via
-   git hooks. This ensures that code commits meet our quality and style standards without manual checks. The hooks set
-   up include pre-commit hooks for running ESLint and Prettier, and commit-msg hooks for validating commit messages
-   with `commitlint`.
+```
+src/
+├── core/
+│   ├── bot.ts              # Main bot (scanner + worker coordinator)
+│   ├── database.ts         # SQLite setup and migrations
+│   ├── task.ts             # Task model and types
+│   ├── task-store.ts       # Task persistence layer
+│   ├── retry-manager.ts    # Retry logic with backoff
+│   ├── workflow-steps.ts   # Individual workflow step implementations
+│   ├── workflow-engine.ts  # Step orchestration
+│   ├── worker.ts           # Worker process
+│   └── types.ts            # Core types
+├── ai/
+│   └── codex.ts            # Codex AI client
+├── github/
+│   ├── client.ts           # GitHub API client
+│   └── issues.ts           # Issue manager
+└── workspace/
+    └── manager.ts          # Git/workspace operations
+```
 
-## Contributing
+### Running Tests
 
-Contributions are welcome! If you'd like to improve this CLI TypeScript starter, please follow the standard
-fork-and-pull request workflow. Here are a few guidelines to keep in mind:
+```bash
+# Run all tests
+pnpm test
 
-- Make sure your code adheres to the project's coding standards, including using Prettier for code formatting and ESLint
-  for linting.
-- Follow the conventional commit format for your commit messages. This project uses `commitizen` and `commitlint` with
-  the `@commitlint/config-conventional` configuration, enforced by Husky git hooks.
-- Include tests for new features or bug fixes when applicable.
-- Ensure your changes are properly formatted and linted before submitting a pull request.
+# Run tests in watch mode
+pnpm test:watch
 
-By adhering to these guidelines, you help maintain the quality and consistency of the project, making it easier for
-others to contribute and for users to understand and utilize the project effectively.
+# Run tests with coverage
+pnpm test -- --coverage
+```
+
+### Code Quality
+
+```bash
+# Lint code
+pnpm lint
+
+# Fix linting issues
+pnpm lint:fix
+
+# Format code
+pnpm format
+
+# Check formatting
+pnpm format:fix
+```
+
+### Commit Messages
+
+We use conventional commits:
+
+```bash
+# Interactive commit helper
+pnpm commit
+
+# Manual format
+git commit -m "feat: add new feature"
+git commit -m "fix: resolve bug"
+git commit -m "docs: update README"
+```
+
+## Troubleshooting
+
+### Bot not processing issues
+
+1. Check GitHub token permissions
+2. Verify issues are assigned to the bot user
+3. Check logs: `pnpm start --log-level debug`
+4. Inspect database: `pnpm start tasks`
+
+### Tasks stuck in `in_progress`
+
+Tasks with expired locks are auto-recovered:
+
+```bash
+# Check for stuck tasks
+pnpm start tasks --state=in_progress
+
+# Wait 5 minutes for lock to expire, or manually reset
+sqlite3 ./data/tasks.db "UPDATE tasks SET state='pending', worker_id=NULL, lock_expires_at=NULL WHERE id='<task-id>';"
+```
+
+### Codex failures
+
+1. Verify CODEX_API_KEY is set
+2. Check codex CLI is installed: `which codex`
+3. Test codex manually: `codex exec "test prompt"`
+
+### Dead letter queue growing
+
+View failed tasks:
+
+```bash
+pnpm start tasks --state=dead_letter
+pnpm start task-logs <task-id>
+```
+
+Common causes:
+
+- Authentication errors (fix GitHub token)
+- Invalid issue format (update issue)
+- Persistent codex failures (check codex config)
 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
 
-## Author
+## Contributing
 
-**Andrey Kucherenko**
+Contributions are welcome! Please:
 
-- GitHub: [@kucherenko](https://github.com/kucherenko)
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes with tests
+4. Use conventional commit messages
+5. Submit a pull request
+
+## Documentation
+
+- [Architecture Guide](./docs/ARCHITECTURE.md) - Detailed architecture documentation
+- [Refactoring Summary](./docs/REFACTORING_SUMMARY.md) - What changed and why
 
 ---
 
-Happy Coding!
+**Built with 🤖 by the GitHub Maintain Bot team**

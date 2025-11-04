@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { CodexClient } from './codex'
 import { spawn } from 'child_process'
 import { EventEmitter } from 'events'

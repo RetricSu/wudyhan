@@ -18,7 +18,7 @@
     "url": "git+ssh://git@github.com/kucherenko/cli-typescript-starter.git"
   },
   "scripts": {
-    "build": "tsup-node",
+    "build": "tsc --noEmit && tsup-node",
     "build:watch": "tsup-node --watch",
     "clean": "rimraf dist",
     "commit": "cz",
@@ -76,11 +76,14 @@
     "typescript": "^5.4.5"
   },
   "dependencies": {
+    "@types/better-sqlite3": "^7.6.11",
     "@types/node-cron": "^3.0.11",
+    "better-sqlite3": "^11.7.0",
     "consola": "^3.2.3",
     "dotenv": "^16.4.5",
     "giget": "^1.2.3",
     "isomorphic-git": "^1.34.2",
+    "nanoid": "^3.3.7",
     "node-cron": "^3.0.3",
     "picocolors": "^1.0.1",
     "yargs": "^17.7.2"

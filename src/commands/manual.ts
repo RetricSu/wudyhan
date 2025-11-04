@@ -19,6 +19,7 @@ export const scan: CommandModule = {
       // Set log level
       const logLevels: Record<string, number> = { error: 0, warn: 1, info: 3, debug: 4 }
       const level = logLevels[config.logLevel || 'info'] ?? 3
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       consola.level = level as any
 
       consola.info('Initializing bot for issue scanning...')
@@ -78,15 +79,25 @@ export const pr: CommandModule = {
       // Set log level
       const logLevels: Record<string, number> = { error: 0, warn: 1, info: 3, debug: 4 }
       const level = logLevels[config.logLevel || 'info'] ?? 3
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       consola.level = level as any
 
-      consola.info('Initializing bot for PR creation...')
-      const bot = new GitHubMaintainBot(config)
+      consola.warn('\nNOTE: The "pr" command is deprecated in the new workflow architecture.')
+      consola.info('PRs are now created automatically as part of the automated workflow.')
+      consola.info(`\nTo process issue #${issueNumber}, use the scan command instead:`)
+      consola.info(`  pnpm start scan`)
+      consola.info('\nThe bot will automatically:')
+      consola.info('  1. Create a task for the issue')
+      consola.info('  2. Generate code fixes')
+      consola.info('  3. Run tests')
+      consola.info('  4. Commit and push changes')
+      consola.info('  5. Create a pull request')
 
-      consola.info(`\nCreating PR for issue #${issueNumber} in ${owner}/${repo}...\n`)
-      await bot.createPullRequest(issueNumber, owner, repo)
-
-      consola.success('\nPR creation process completed!')
+      // For backwards compatibility, we could manually create a task
+      // but the old bot.createPullRequest method has been removed
+      consola.error('\nDirect PR creation is no longer supported.')
+      consola.info('Please use the automated workflow instead.')
+      process.exit(1)
     } catch (error) {
       consola.error('Failed to create PR:', error)
       process.exit(1)
@@ -121,7 +132,6 @@ export const commit: CommandModule = {
       const issueNumber = argv.issue as number
       const owner = argv.owner as string
       const repo = argv.repo as string
-      const customMessage = argv.message as string | undefined
 
       if (!issueNumber || !owner || !repo) {
         consola.error('Missing required arguments: issue, owner, repo')
@@ -137,20 +147,20 @@ export const commit: CommandModule = {
       // Set log level
       const logLevels: Record<string, number> = { error: 0, warn: 1, info: 3, debug: 4 }
       const level = logLevels[config.logLevel || 'info'] ?? 3
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       consola.level = level as any
 
-      consola.info('Initializing bot for commit...')
-      const bot = new GitHubMaintainBot(config)
+      consola.warn('\nNOTE: The "commit" command is deprecated in the new workflow architecture.')
+      consola.info('Commits are now handled automatically as part of the workflow.')
+      consola.info(`\nTo process issue #${issueNumber}, use the scan command instead:`)
+      consola.info(`  pnpm start scan`)
+      consola.info('\nThe bot will automatically handle all commit and push operations.')
 
-      consola.info(`\nCommitting and pushing changes for issue #${issueNumber} in ${owner}/${repo}...\n`)
-      const commitMessage =
-        customMessage || `🤖 Bot: Fix issue #${issueNumber}\n\nResolves part of issue #${issueNumber}`
-
-      await bot.commitAndPush(issueNumber, owner, repo, commitMessage)
-
-      consola.success('\nCommit and push completed!')
-      consola.info('\nNext step: Create a PR with:')
-      consola.info(`  pnpm start pr ${issueNumber} ${owner} ${repo}`)
+      // For backwards compatibility, we could manually create a task
+      // but the old bot.commitAndPush method has been removed
+      consola.error('\nDirect commit/push is no longer supported.')
+      consola.info('Please use the automated workflow instead.')
+      process.exit(1)
     } catch (error) {
       consola.error('Failed to commit:', error)
       process.exit(1)

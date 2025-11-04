@@ -33,6 +33,7 @@ export class GitHubClient {
   async getAssignedIssues(): Promise<Issue[]> {
     try {
       // Get all issues assigned to the authenticated user
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const issues = (await this.makeRequest('/user/issues?state=open')) as any[]
 
       // Filter issues to only include those from configured repositories
@@ -40,17 +41,21 @@ export class GitHubClient {
 
       // Convert GitHub API response to our Issue type
       const formattedIssues: Issue[] = issues
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .filter((issue: any) => {
           const repoFullName = issue.repository.full_name
           return configuredRepos.has(repoFullName)
         })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .map((issue: any) => ({
           id: issue.id,
           number: issue.number,
           title: issue.title,
           body: issue.body,
           state: issue.state,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           labels: issue.labels.map((label: any) => ({ name: label.name, color: label.color })),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           assignees: issue.assignees.map((assignee: any) => ({
             login: assignee.login,
             id: assignee.id,

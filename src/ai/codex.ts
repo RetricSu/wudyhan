@@ -9,13 +9,61 @@ export interface CodexOptions {
   nonInteractive?: boolean
 }
 
+export interface JobStatus {
+  completed: boolean
+  failed: boolean
+  error?: string
+  commitSha?: string
+  filesModified?: string[]
+}
+
+export interface ExecuteResult {
+  success: boolean
+  output: string
+  error?: string
+  jobId?: string
+}
+
 export class CodexClient {
   private options: CodexOptions
+  private jobStatusCache: Map<string, JobStatus> = new Map()
 
   constructor(options: CodexOptions = {}) {
     this.options = {
       nonInteractive: true,
       ...options,
+    }
+  }
+
+  /**
+   * Execute codex with job tracking support
+   */
+  async executeWithJobTracking(prompt: string, context?: string, workingDir?: string): Promise<ExecuteResult> {
+    const result = await this.execute(prompt, context, workingDir)
+    // For now, codex runs synchronously, so no job ID
+    // In the future, if codex supports async jobs, this would return a job ID
+    return {
+      ...result,
+      jobId: undefined,
+    }
+  }
+
+  /**
+   * Get the status of a codex job
+   * For now, this is a stub as codex runs synchronously
+   */
+  async getJobStatus(jobId: string): Promise<JobStatus> {
+    // Check cache first
+    if (this.jobStatusCache.has(jobId)) {
+      return this.jobStatusCache.get(jobId)!
+    }
+
+    // Try to query codex status
+    // This would use `codex status <jobId>` if that command exists
+    // For now, assume completed
+    return {
+      completed: true,
+      failed: false,
     }
   }
 

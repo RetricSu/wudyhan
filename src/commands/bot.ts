@@ -26,6 +26,7 @@ const start: CommandModule = {
       // Consola v3 log levels: 0=Fatal/Error, 1=Warnings, 2=Normal, 3=Info (default), 4=Debug, 5=Trace
       const logLevels: Record<string, number> = { error: 0, warn: 1, info: 3, debug: 4 }
       const level = logLevels[config.logLevel || 'info'] ?? 3
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       consola.level = level as any
 
       consola.info('Starting bot initialization...')

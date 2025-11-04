@@ -118,3 +118,5 @@ bundle
 node_modules
 TODO
 workspaces
+data/
+*.db

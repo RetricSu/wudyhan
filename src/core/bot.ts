@@ -4,11 +4,17 @@ import { GitHubClient } from '../github/client'
 import { IssueManager } from '../github/issues'
 import { WorkspaceManager } from '../workspace/manager'
 import { CodexClient } from '../ai/codex'
+import { TaskDatabase } from './database'
+import { TaskStore } from './task-store'
+import { WorkflowEngine } from './workflow-engine'
+import { Worker } from './worker'
+import { RetryManager } from './retry-manager'
+import { sha256 } from './task'
 
 export class GitHubMaintainBot {
   private config: BotConfig
   private isRunning = false
-  private intervalId?: NodeJS.Timeout
+  private scanIntervalId?: NodeJS.Timeout
   private status: BotStatus = {
     isRunning: false,
     lastCheck: new Date(),
@@ -21,6 +27,13 @@ export class GitHubMaintainBot {
   private workspaceManager: WorkspaceManager
   private codexClient: CodexClient
 
+  // New architecture components
+  private database: TaskDatabase
+  private taskStore: TaskStore
+  private workflowEngine: WorkflowEngine
+  private worker: Worker
+  private retryManager: RetryManager
+
   constructor(config: BotConfig) {
     this.config = config
     this.githubClient = new GitHubClient(config.githubToken, config.repositories)
@@ -28,6 +41,24 @@ export class GitHubMaintainBot {
     this.workspaceManager = new WorkspaceManager()
     this.codexClient = new CodexClient({
       apiKey: config.codexApiKey,
+    })
+
+    // Initialize new architecture components
+    this.database = new TaskDatabase('./data/tasks.db')
+    this.taskStore = new TaskStore(this.database, undefined, 5 * 60 * 1000) // 5 min lock lease
+    this.retryManager = new RetryManager(1000, 60000, 0.1) // 1s base, 60s max, 10% jitter
+    this.workflowEngine = new WorkflowEngine(
+      this.taskStore,
+      this.workspaceManager,
+      this.codexClient,
+      this.issueManager,
+      this.githubClient,
+      this.retryManager,
+    )
+    this.worker = new Worker(this.taskStore, this.workflowEngine, this.issueManager, {
+      pollInterval: 10000, // 10 seconds
+      lockRenewalInterval: 60000, // 1 minute
+      maxConcurrentTasks: config.maxConcurrent || 3,
     })
   }
 
@@ -38,23 +69,25 @@ export class GitHubMaintainBot {
     }
 
     // Configure logging level first
-    // Consola v3 log levels: 0=Fatal/Error, 1=Warnings, 2=Normal, 3=Info (default), 4=Debug, 5=Trace
     const logLevels: Record<string, number> = { error: 0, warn: 1, info: 3, debug: 4 }
     const level = logLevels[this.config.logLevel] ?? 3
-    consola.level = level as any
+    consola.level = level as 0 | 1 | 2 | 3 | 4 | 5
 
-    consola.info('Starting GitHub Maintain Bot...')
+    consola.info('Starting GitHub Maintain Bot (New Architecture)...')
     consola.debug('Log level set to:', this.config.logLevel, '(level:', level, ')')
     this.isRunning = true
     this.status.isRunning = true
 
-    // Run initial check immediately
-    consola.debug('Running initial issue check...')
-    await this.checkAndProcessIssues()
+    // Start the worker
+    await this.worker.start()
 
-    // Start the monitoring loop
-    this.intervalId = setInterval(async () => {
-      await this.checkAndProcessIssues()
+    // Run initial issue scan immediately
+    consola.debug('Running initial issue scan...')
+    await this.scanAndQueueIssues()
+
+    // Start the scanning loop (creates tasks from issues)
+    this.scanIntervalId = setInterval(async () => {
+      await this.scanAndQueueIssues()
     }, this.config.interval)
 
     consola.success('Bot started successfully')
@@ -70,19 +103,105 @@ export class GitHubMaintainBot {
     this.isRunning = false
     this.status.isRunning = false
 
-    if (this.intervalId) {
-      clearInterval(this.intervalId)
-      this.intervalId = undefined
+    if (this.scanIntervalId) {
+      clearInterval(this.scanIntervalId)
+      this.scanIntervalId = undefined
     }
+
+    // Stop the worker
+    await this.worker.stop()
+
+    // Close database
+    this.database.close()
 
     consola.success('Bot stopped successfully')
   }
 
   getStatus(): BotStatus {
-    return { ...this.status }
+    const workerStatus = this.worker.getStatus()
+    return {
+      ...this.status,
+      activeTasks: workerStatus.activeTasks,
+    }
   }
 
-  // Public method to manually scan for issues
+  /**
+   * Scan for assigned issues and create tasks
+   */
+  private async scanAndQueueIssues(): Promise<void> {
+    try {
+      consola.debug('Scanning for assigned issues...')
+      this.status.lastCheck = new Date()
+
+      // Get assigned issues
+      const issues = await this.issueManager.getAssignedIssues()
+
+      if (issues.length === 0) {
+        consola.debug('No assigned issues found')
+        return
+      }
+
+      consola.info(`Found ${issues.length} assigned issues`)
+
+      // Process each issue
+      for (const issue of issues) {
+        await this.queueIssueTask(issue)
+      }
+    } catch (error) {
+      consola.error('Error during issue scan:', error)
+    }
+  }
+
+  /**
+   * Queue a task for an issue (idempotent)
+   */
+  private async queueIssueTask(issue: Issue): Promise<void> {
+    try {
+      // Analyze the issue to determine if we can handle it
+      const analysis = await this.issueManager.analyzeIssue(issue)
+
+      if (!analysis.canHandle) {
+        consola.debug(`Issue #${issue.number} cannot be handled automatically`)
+        return
+      }
+
+      const repo = `${issue.repository.owner.login}/${issue.repository.name}`
+
+      // Get current repo HEAD SHA (for fingerprint)
+      const repoHeadSha = issue.repository.owner.login // Placeholder - should get actual HEAD SHA
+
+      // Calculate issue body hash
+      const issueBodySha = sha256(issue.body || '')
+
+      // Create task (idempotent - will return existing if fingerprint matches)
+      const task = this.taskStore.createTask({
+        issueNumber: issue.number,
+        repo,
+        repoHeadSha,
+        issueBodySha,
+        maxRetries: 5,
+      })
+
+      if (task) {
+        if (task.state === 'pending') {
+          consola.info(`Queued task ${task.id} for issue #${issue.number}`)
+          this.status.processedIssues++
+        } else {
+          consola.debug(`Task ${task.id} already exists for issue #${issue.number} (state: ${task.state})`)
+        }
+      }
+    } catch (error) {
+      consola.error(`Error queuing task for issue #${issue.number}:`, error)
+    }
+  }
+
+  // ============================================================================
+  // Public API Methods
+  // ============================================================================
+
+  /**
+   * Public method to manually scan for issues
+   */
   async scanIssues(): Promise<Issue[]> {
     consola.info('Scanning for assigned issues...')
     const issues = await this.issueManager.getAssignedIssues()
@@ -98,16 +217,12 @@ export class GitHubMaintainBot {
       consola.info(`Issue #${issue.number}: ${issue.title}`)
       consola.info(`  Repository: ${issue.repository.owner.login}/${issue.repository.name}`)
       consola.info(`  State: ${issue.state}`)
-      consola.info(`  Body: ${issue.body?.substring(0, 100)}${issue.body && issue.body.length > 100 ? '...' : ''}`)
 
       // Analyze if we can handle it
       const analysis = await this.issueManager.analyzeIssue(issue)
       consola.info(`  Can handle: ${analysis.canHandle}`)
       if (analysis.canHandle) {
         consola.info(`  Tasks found: ${analysis.tasks.length}`)
-        analysis.tasks.forEach((task, idx) => {
-          consola.info(`    ${idx + 1}. ${task.substring(0, 80)}${task.length > 80 ? '...' : ''}`)
-        })
       }
       consola.info('') // Empty line for readability
     }
@@ -115,449 +230,17 @@ export class GitHubMaintainBot {
     return issues
   }
 
-  // Public method to manually create PR for an issue
-  async createPullRequest(issueNumber: number, owner: string, repo: string): Promise<void> {
-    consola.info(`Creating PR for issue #${issueNumber} in ${owner}/${repo}...`)
-
-    // Find the issue
-    const issues = await this.issueManager.getAssignedIssues()
-    const issue = issues.find(
-      (i) => i.number === issueNumber && i.repository.owner.login === owner && i.repository.name === repo,
-    )
-
-    if (!issue) {
-      consola.error(`Issue #${issueNumber} not found or not assigned to you`)
-      return
-    }
-
-    await this.createPullRequestForIssue(issue)
+  /**
+   * Get task store for advanced operations
+   */
+  getTaskStore(): TaskStore {
+    return this.taskStore
   }
 
-  // Public method to manually commit and push changes
-  async commitAndPush(issueNumber: number, owner: string, repo: string, commitMessage: string): Promise<void> {
-    consola.info(`Committing changes for issue #${issueNumber} in ${owner}/${repo}...`)
-
-    const repoDir = await this.workspaceManager.cloneRepository(owner, repo)
-    if (!repoDir) {
-      consola.error('Could not access repository')
-      return
-    }
-
-    // Get current branch
-    const currentBranch = await this.workspaceManager.getCurrentBranch(repoDir)
-    consola.info(`Current branch: ${currentBranch}`)
-
-    // Commit changes
-    const committed = await this.workspaceManager.commitChanges(repoDir, commitMessage)
-    if (!committed) {
-      consola.error('Failed to commit changes')
-      return
-    }
-
-    consola.success('Changes committed successfully')
-
-    // Push branch
-    const pushed = await this.workspaceManager.pushBranch(repoDir, currentBranch)
-    if (!pushed) {
-      consola.error('Failed to push changes')
-      return
-    }
-
-    consola.success(`Changes pushed to branch: ${currentBranch}`)
-  }
-
-  private async checkAndProcessIssues(): Promise<void> {
-    try {
-      consola.debug('Checking for new issues...')
-      this.status.lastCheck = new Date()
-
-      // Get assigned issues
-      const issues = await this.issueManager.getAssignedIssues()
-
-      if (issues.length === 0) {
-        consola.debug('No assigned issues found')
-        return
-      }
-
-      consola.info(`Found ${issues.length} assigned issues`)
-
-      // Process each issue
-      for (const issue of issues) {
-        await this.processIssue(issue)
-        this.status.processedIssues++
-      }
-    } catch (error) {
-      consola.error('Error during issue check:', error)
-    }
-  }
-
-  private async processIssue(issue: Issue): Promise<void> {
-    try {
-      consola.info(`Processing issue #${issue.number}: ${issue.title}`)
-
-      // Analyze the issue to determine if we can handle it
-      const analysis = await this.issueManager.analyzeIssue(issue)
-
-      if (!analysis.canHandle) {
-        consola.info(`Skipping issue #${issue.number} - cannot handle automatically`)
-        return
-      }
-
-      // Update issue status
-      await this.issueManager.updateIssueStatus(
-        issue.repository.owner.login,
-        issue.repository.name,
-        issue.number,
-        '🤖 Bot is analyzing and working on this issue...',
-      )
-
-      // Process each task
-      for (const task of analysis.tasks) {
-        await this.processTask(issue, task)
-      }
-
-      // Create pull request if we made changes
-      await this.createPullRequestForIssue(issue)
-    } catch (error) {
-      consola.error(`Error processing issue #${issue.number}:`, error)
-    }
-  }
-
-  private async processTask(issue: Issue, task: string): Promise<void> {
-    try {
-      consola.info(`Processing task: ${task}`)
-
-      // Update issue status with task progress
-      await this.issueManager.updateIssueStatus(
-        issue.repository.owner.login,
-        issue.repository.name,
-        issue.number,
-        `🤖 **Working on:** ${task}\n\nCloning repository and setting up workspace...`,
-      )
-
-      // Clone or update the repository
-      const repoDir = await this.workspaceManager.cloneRepository(issue.repository.owner.login, issue.repository.name)
-
-      if (!repoDir) {
-        throw new Error('Failed to access repository')
-      }
-
-      await this.issueManager.updateIssueStatus(
-        issue.repository.owner.login,
-        issue.repository.name,
-        issue.number,
-        `🤖 **Working on:** ${task}\n\nRepository ready. Creating feature branch...`,
-      )
-
-      // Create a branch for this task
-      const branchName = `bot/issue-${issue.number}/${task.replace(/[^a-zA-Z0-9]/g, '-').substring(0, 50)}`
-      const branchCreated = await this.workspaceManager.createBranch(repoDir, branchName)
-
-      if (!branchCreated) {
-        throw new Error('Failed to create branch')
-      }
-
-      await this.issueManager.updateIssueStatus(
-        issue.repository.owner.login,
-        issue.repository.name,
-        issue.number,
-        `🤖 **Working on:** ${task}\n\nBranch created. Generating code solution...`,
-      )
-
-      // Generate code for the task
-      const codebaseContext = await this.getCodebaseContext(repoDir)
-      const generatedCode = await this.codexClient.generateCode(task, codebaseContext, repoDir)
-
-      if (!generatedCode) {
-        await this.issueManager.updateIssueStatus(
-          issue.repository.owner.login,
-          issue.repository.name,
-          issue.number,
-          `⚠️ **Issue:** ${task}\n\nFailed to generate code solution. Manual intervention required.`,
-        )
-        consola.warn(`Failed to generate code for task: ${task}`)
-        return
-      }
-
-      await this.issueManager.updateIssueStatus(
-        issue.repository.owner.login,
-        issue.repository.name,
-        issue.number,
-        `🤖 **Working on:** ${task}\n\nCode generated. Applying changes...`,
-      )
-
-      // Parse and apply the generated code
-      const codeApplied = await this.applyGeneratedCode(repoDir, generatedCode, task)
-
-      if (!codeApplied) {
-        await this.issueManager.updateIssueStatus(
-          issue.repository.owner.login,
-          issue.repository.name,
-          issue.number,
-          `⚠️ **Issue:** ${task}\n\nFailed to apply code changes. Manual review needed.`,
-        )
-        consola.warn(`Failed to apply generated code for task: ${task}`)
-        return
-      }
-
-      await this.issueManager.updateIssueStatus(
-        issue.repository.owner.login,
-        issue.repository.name,
-        issue.number,
-        `🤖 **Working on:** ${task}\n\nChanges applied. Running validation...`,
-      )
-
-      // Run tests to validate changes
-      const testResult = await this.workspaceManager.runTests(repoDir)
-
-      if (!testResult.success) {
-        await this.issueManager.updateIssueStatus(
-          issue.repository.owner.login,
-          issue.repository.name,
-          issue.number,
-          `⚠️ **Issue:** ${task}\n\nTests failed. Attempting to fix or manual review required.\n\nTest output: ${testResult.output.substring(0, 200)}...`,
-        )
-        consola.warn(`Tests failed for task: ${task}`)
-        consola.debug('Test output:', testResult.output)
-        // TODO: Could attempt to fix the code or revert changes
-        return
-      }
-
-      // Run linting
-      const lintResult = await this.workspaceManager.runLinting(repoDir)
-
-      if (!lintResult.success) {
-        await this.issueManager.updateIssueStatus(
-          issue.repository.owner.login,
-          issue.repository.name,
-          issue.number,
-          `⚠️ **Issue:** ${task}\n\nLinting warnings detected. Code may need manual review.\n\nLint output: ${lintResult.output.substring(0, 200)}...`,
-        )
-        consola.warn(`Linting failed for task: ${task}`)
-        consola.debug('Lint output:', lintResult.output)
-        // Continue anyway, linting failures might not be critical
-      }
-
-      // Run build if available
-      const buildResult = await this.workspaceManager.runBuild(repoDir)
-
-      if (!buildResult.success) {
-        await this.issueManager.updateIssueStatus(
-          issue.repository.owner.login,
-          issue.repository.name,
-          issue.number,
-          `⚠️ **Issue:** ${task}\n\nBuild failed. Manual intervention required.\n\nBuild output: ${buildResult.output.substring(0, 200)}...`,
-        )
-        consola.warn(`Build failed for task: ${task}`)
-        consola.debug('Build output:', buildResult.output)
-        // TODO: Could attempt to fix build issues
-        return
-      }
-
-      await this.issueManager.updateIssueStatus(
-        issue.repository.owner.login,
-        issue.repository.name,
-        issue.number,
-        `🤖 **Working on:** ${task}\n\nValidation passed. Committing changes...`,
-      )
-
-      // Commit the changes
-      const commitMessage = `🤖 Bot: ${task}\n\nResolves part of issue #${issue.number}`
-      const committed = await this.workspaceManager.commitChanges(repoDir, commitMessage)
-
-      if (!committed) {
-        await this.issueManager.updateIssueStatus(
-          issue.repository.owner.login,
-          issue.repository.name,
-          issue.number,
-          `⚠️ **Issue:** ${task}\n\nFailed to commit changes. Manual review needed.`,
-        )
-        consola.warn(`Failed to commit changes for task: ${task}`)
-        return
-      }
-
-      await this.issueManager.updateIssueStatus(
-        issue.repository.owner.login,
-        issue.repository.name,
-        issue.number,
-        `🤖 **Working on:** ${task}\n\nChanges committed. Pushing to remote...`,
-      )
-
-      // Push the branch
-      const pushed = await this.workspaceManager.pushBranch(repoDir, branchName)
-
-      if (!pushed) {
-        await this.issueManager.updateIssueStatus(
-          issue.repository.owner.login,
-          issue.repository.name,
-          issue.number,
-          `⚠️ **Issue:** ${task}\n\nFailed to push changes. Manual intervention required.`,
-        )
-        consola.warn(`Failed to push branch for task: ${task}`)
-        return
-      }
-
-      await this.issueManager.updateIssueStatus(
-        issue.repository.owner.login,
-        issue.repository.name,
-        issue.number,
-        `✅ **Task completed:** ${task}\n\nAll validation passed and changes pushed successfully.`,
-      )
-
-      consola.success(`Successfully processed task: ${task}`)
-    } catch (error) {
-      await this.issueManager.updateIssueStatus(
-        issue.repository.owner.login,
-        issue.repository.name,
-        issue.number,
-        `❌ **Error processing task:** ${task}\n\nAn unexpected error occurred. Manual intervention required.`,
-      )
-      consola.error(`Error processing task "${task}":`, error)
-    }
-  }
-
-  private async applyGeneratedCode(repoDir: string, generatedCode: string, task: string): Promise<boolean> {
-    try {
-      // TODO: Implement intelligent code parsing and application
-      // For now, this is a placeholder that would need to:
-      // 1. Parse the generated code to identify what files to modify
-      // 2. Determine where in the files to make changes
-      // 3. Apply the changes safely
-
-      consola.debug('Generated code to apply:', generatedCode)
-
-      // Placeholder: Assume the code contains file paths and content
-      // This would need sophisticated parsing in a real implementation
-
-      // For demonstration, create a simple example file
-      const exampleFile = 'bot-generated-changes.txt'
-      const content = `Generated code for task: ${task}\n\n${generatedCode}\n\nThis is a placeholder implementation.`
-
-      return await this.workspaceManager.applyCodeChanges(repoDir, exampleFile, content)
-    } catch (error) {
-      consola.error('Error applying generated code:', error)
-      return false
-    }
-  }
-
-  private async getCodebaseContext(repoDir: string): Promise<string> {
-    // TODO: Analyze the codebase structure and provide relevant context
-    // For now, return basic context about the repository
-    try {
-      // Could analyze package.json, tsconfig.json, etc.
-      const context = `Repository at ${repoDir}. This appears to be a TypeScript/JavaScript project.`
-      return context
-    } catch (error) {
-      consola.warn('Error getting codebase context:', error)
-      return 'General TypeScript/JavaScript project context.'
-    }
-  }
-
-  private async createPullRequestForIssue(issue: Issue): Promise<void> {
-    try {
-      consola.info(`Creating PR for issue #${issue.number}: ${issue.title}`)
-
-      // Check if there are any branches created for this issue
-      const repoDir = await this.workspaceManager.cloneRepository(issue.repository.owner.login, issue.repository.name)
-
-      if (!repoDir) {
-        consola.warn('Could not access repository for PR creation')
-        return
-      }
-
-      // Get all branches created for this issue
-      const issueBranches = await this.workspaceManager.getIssueBranches(repoDir, issue.number)
-
-      if (issueBranches.length === 0) {
-        consola.info(`No branches found for issue #${issue.number}`)
-        return
-      }
-
-      consola.info(`Found ${issueBranches.length} branches for issue #${issue.number}`)
-
-      // Check for conflicts on each branch before creating PR
-      const validBranches: string[] = []
-      for (const branch of issueBranches) {
-        const hasConflicts = await this.workspaceManager.checkForConflicts(repoDir, 'main')
-        if (!hasConflicts) {
-          validBranches.push(branch)
-        } else {
-          consola.warn(`Branch ${branch} has conflicts with main, skipping PR creation`)
-        }
-      }
-
-      if (validBranches.length === 0) {
-        consola.warn(`No valid branches found for issue #${issue.number} - all have conflicts`)
-        await this.issueManager.updateIssueStatus(
-          issue.repository.owner.login,
-          issue.repository.name,
-          issue.number,
-          '⚠️ **Issue partially resolved** - Some changes have merge conflicts and need manual review',
-        )
-        return
-      }
-
-      // For now, create a single PR combining all valid branches
-      // TODO: In the future, could create separate PRs for each branch
-      const prTitle = `🤖 Bot: Resolve issue #${issue.number} - ${issue.title}`
-      const prBody = this.generatePRDescription(issue, validBranches)
-
-      // Use the first valid branch as head
-      const headBranch = validBranches[0]
-      if (!headBranch) {
-        consola.error('No valid head branch found')
-        return
-      }
-
-      // Create the PR using MCP
-      const pr = await this.githubClient.createPullRequest(issue.repository.owner.login, issue.repository.name, {
-        title: prTitle,
-        body: prBody,
-        head: headBranch,
-        base: 'main',
-      })
-
-      if (pr) {
-        consola.success(`Created PR #${pr.number} for issue #${issue.number}`)
-
-        // Update the issue with PR link and status
-        const statusMessage =
-          validBranches.length === issueBranches.length
-            ? `✅ **Issue resolved!** PR created: #${pr.number}`
-            : `✅ **Issue partially resolved!** PR created: #${pr.number}\n⚠️ Some branches had conflicts and were not included`
-
-        await this.issueManager.updateIssueStatus(
-          issue.repository.owner.login,
-          issue.repository.name,
-          issue.number,
-          statusMessage,
-        )
-      } else {
-        consola.error('Failed to create PR')
-      }
-    } catch (error) {
-      consola.error(`Error creating PR for issue #${issue.number}:`, error)
-    }
-  }
-
-  private generatePRDescription(issue: Issue, validBranches: string[]): string {
-    const branchesList = validBranches.map((branch) => `- ${branch}`).join('\n')
-
-    return `## 🤖 Bot-generated PR
-
-This PR addresses issue #${issue.number}: **${issue.title}**
-
-### Changes Made:
-${branchesList}
-
-### Issue Details:
-${issue.body ? issue.body.substring(0, 500) + (issue.body.length > 500 ? '...' : '') : 'No description provided'}
-
-### Testing:
-- ✅ All tests pass
-- ✅ Code follows project standards
-- ✅ No breaking changes introduced
-
-Closes #${issue.number}`
+  /**
+   * Get worker for status monitoring
+   */
+  getWorker(): Worker {
+    return this.worker
   }
 }
