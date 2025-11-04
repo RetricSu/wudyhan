@@ -46,6 +46,10 @@ export class GitHubClient {
     return this.makeRequest(`/repos/${owner}/${repo}/issues/${issueNumber}`) as Promise<Issue>
   }
 
+  async getPullRequest(owner: string, repo: string, prNumber: number): Promise<PullRequest> {
+    return this.makeRequest(`/repos/${owner}/${repo}/pulls/${prNumber}`) as Promise<PullRequest>
+  }
+
   async createPullRequest(
     owner: string,
     repo: string,

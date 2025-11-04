@@ -44,8 +44,8 @@ export class PullRequestManager {
 
   async getPRDetails(owner: string, repo: string, prNumber: number): Promise<PullRequest | null> {
     try {
-      // TODO: Use MCP tool mcp_gitkraken_pull_request_get_detail
-      const pr = await this.client.getIssue(owner, repo, prNumber)
+      // Use the PR-specific API endpoint which returns PullRequest data
+      const pr = await this.client.getPullRequest(owner, repo, prNumber)
       return pr
     } catch (error) {
       consola.error('Error getting PR details:', error)
