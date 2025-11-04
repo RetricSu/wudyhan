@@ -1,9 +1,9 @@
 {
-  "name": "cli-typescript-starter",
+  "name": "github-maintain-bot",
   "version": "1.0.0",
-  "description": "`cli-typescript-starter` is a simple and efficient tool that enables you to quickly create command-line applications using TypeScript. With its well-structured codebase and robust features, it provides an easy-to-use interface for developing and testing your CLI applications. It also comes with a set of predefined tools that allow you to quickly create a basic structure for your CLI application, which can be customized according to your needs. Additionally, it provides a simple way to add dependencies and plugins to your CLI app, making it ideal for developers who want to use third-party libraries and extend the functionality of their CLI apps.",
+  "description": "A self-hosted GitHub maintenance bot that autonomously monitors assigned issues, performs coding tasks using AI, and submits pull requests. Built with TypeScript and designed for continuous repository maintenance.",
   "bin": {
-    "cli-typescript-starter": "./bin/run"
+    "github-maintain-bot": "./bin/run"
   },
   "directories": {
     "lib": "src",
@@ -36,10 +36,13 @@
     "release": "semantic-release"
   },
   "keywords": [
+    "github",
+    "bot",
+    "automation",
+    "maintenance",
+    "ai",
     "typescript",
-    "starter",
-    "cli",
-    "bootstrap"
+    "cli"
   ],
   "author": "Andrey Kucherenko <kucherenko.andrey@gmail.com>",
   "license": "MIT",
@@ -73,9 +76,12 @@
     "typescript": "^5.4.5"
   },
   "dependencies": {
+    "@types/node-cron": "^3.0.11",
     "consola": "^3.2.3",
     "dotenv": "^16.4.5",
     "giget": "^1.2.3",
+    "isomorphic-git": "^1.34.2",
+    "node-cron": "^3.0.3",
     "picocolors": "^1.0.1",
     "yargs": "^17.7.2"
   },
