@@ -1,4 +1,4 @@
-import { exec } from 'child_process'
+import { exec, spawn } from 'child_process'
 import { promises as fs } from 'fs'
 import * as fsSync from 'fs'
 import * as path from 'path'
@@ -310,12 +310,28 @@ export class WorkspaceManager {
 
   private async runGitCommand(cwd: string, args: string[]): Promise<string> {
     return new Promise((resolve, reject) => {
-      exec(`git ${args.join(' ')}`, { cwd }, (error, stdout, stderr) => {
-        if (error) {
-          reject(new Error(`Git command failed: ${error.message}\n${stderr}`))
-        } else {
+      const git = spawn('git', args, { cwd })
+      let stdout = ''
+      let stderr = ''
+
+      git.stdout.on('data', (data: Buffer) => {
+        stdout += data.toString()
+      })
+
+      git.stderr.on('data', (data: Buffer) => {
+        stderr += data.toString()
+      })
+
+      git.on('close', (code: number | null) => {
+        if (code === 0) {
           resolve(stdout.trim())
+        } else {
+          reject(new Error(`Git command failed: ${stderr}`))
         }
+      })
+
+      git.on('error', (error: Error) => {
+        reject(new Error(`Git command failed: ${error.message}`))
       })
     })
   }

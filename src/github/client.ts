@@ -1,15 +1,14 @@
 import { consola } from 'consola'
-import { GitHubMCPClient } from './mcp-client'
 import { Issue, PullRequest } from '../core/types'
 
 export class GitHubClient {
-  private mcpClient: GitHubMCPClient
   private token: string
   private baseUrl = 'https://api.github.com'
+  private repositories: Array<{ owner: string; name: string }> = []
 
-  constructor(token: string) {
+  constructor(token: string, repositories: Array<{ owner: string; name: string }> = []) {
     this.token = token
-    this.mcpClient = new GitHubMCPClient()
+    this.repositories = repositories
   }
 
   private async makeRequest(endpoint: string, options: RequestInit = {}): Promise<unknown> {
@@ -33,9 +32,41 @@ export class GitHubClient {
 
   async getAssignedIssues(): Promise<Issue[]> {
     try {
-      // Use MCP client for getting assigned issues
-      const issues = await this.mcpClient.getAssignedIssues()
-      return issues
+      // Get all issues assigned to the authenticated user
+      const issues = (await this.makeRequest('/user/issues?state=open')) as any[]
+
+      // Filter issues to only include those from configured repositories
+      const configuredRepos = new Set(this.repositories.map((repo) => `${repo.owner}/${repo.name}`))
+
+      // Convert GitHub API response to our Issue type
+      const formattedIssues: Issue[] = issues
+        .filter((issue: any) => {
+          const repoFullName = issue.repository.full_name
+          return configuredRepos.has(repoFullName)
+        })
+        .map((issue: any) => ({
+          id: issue.id,
+          number: issue.number,
+          title: issue.title,
+          body: issue.body,
+          state: issue.state,
+          labels: issue.labels.map((label: any) => ({ name: label.name, color: label.color })),
+          assignees: issue.assignees.map((assignee: any) => ({
+            login: assignee.login,
+            id: assignee.id,
+            avatarUrl: assignee.avatar_url,
+          })),
+          createdAt: issue.created_at,
+          updatedAt: issue.updated_at,
+          url: issue.html_url,
+          repository: {
+            owner: { login: issue.repository.owner.login },
+            name: issue.repository.name,
+          },
+        }))
+
+      consola.debug(`Fetched ${formattedIssues.length} assigned issues from configured repositories`)
+      return formattedIssues
     } catch (error) {
       consola.error('Error fetching assigned issues:', error)
       return []

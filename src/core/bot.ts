@@ -1,4 +1,4 @@
-import { consola } from 'consola'
+import consola from 'consola'
 import { BotConfig, BotStatus, Issue } from './types'
 import { GitHubClient } from '../github/client'
 import { IssueManager } from '../github/issues'
@@ -23,7 +23,7 @@ export class GitHubMaintainBot {
 
   constructor(config: BotConfig) {
     this.config = config
-    this.githubClient = new GitHubClient(config.githubToken)
+    this.githubClient = new GitHubClient(config.githubToken, config.repositories)
     this.issueManager = new IssueManager(this.githubClient)
     this.workspaceManager = new WorkspaceManager()
     this.codexClient = new CodexClient({
@@ -37,9 +37,20 @@ export class GitHubMaintainBot {
       return
     }
 
+    // Configure logging level first
+    // Consola v3 log levels: 0=Fatal/Error, 1=Warnings, 2=Normal, 3=Info (default), 4=Debug, 5=Trace
+    const logLevels: Record<string, number> = { error: 0, warn: 1, info: 3, debug: 4 }
+    const level = logLevels[this.config.logLevel] ?? 3
+    consola.level = level as any
+
     consola.info('Starting GitHub Maintain Bot...')
+    consola.debug('Log level set to:', this.config.logLevel, '(level:', level, ')')
     this.isRunning = true
     this.status.isRunning = true
+
+    // Run initial check immediately
+    consola.debug('Running initial issue check...')
+    await this.checkAndProcessIssues()
 
     // Start the monitoring loop
     this.intervalId = setInterval(async () => {
@@ -73,8 +84,8 @@ export class GitHubMaintainBot {
 
   private async checkAndProcessIssues(): Promise<void> {
     try {
-      this.status.lastCheck = new Date()
       consola.debug('Checking for new issues...')
+      this.status.lastCheck = new Date()
 
       // Get assigned issues
       const issues = await this.issueManager.getAssignedIssues()

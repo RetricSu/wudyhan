@@ -1,5 +1,6 @@
 import { CommandModule } from 'yargs'
-import { consola } from 'consola'
+import consola from 'consola'
+import { config as dotenvConfig } from 'dotenv'
 import { GitHubMaintainBot } from '../core/bot'
 import { ConfigManager } from '../config/config'
 
@@ -15,11 +16,31 @@ const start: CommandModule = {
         return
       }
 
+      // Load environment variables from .env file
+      dotenvConfig()
+
       const configManager = new ConfigManager()
       const config = await configManager.loadConfig()
 
+      // Set log level BEFORE creating the bot instance
+      // Consola v3 log levels: 0=Fatal/Error, 1=Warnings, 2=Normal, 3=Info (default), 4=Debug, 5=Trace
+      const logLevels: Record<string, number> = { error: 0, warn: 1, info: 3, debug: 4 }
+      const level = logLevels[config.logLevel || 'info'] ?? 3
+      consola.level = level as any
+
+      consola.info('Starting bot initialization...')
+      consola.debug('Configuration loaded:', {
+        logLevel: config.logLevel,
+        currentLevel: consola.level,
+        interval: config.interval,
+        repositories: config.repositories.length,
+      })
+
+      consola.info('Creating bot instance...')
       bot = new GitHubMaintainBot(config)
+      consola.info('Starting bot...')
       await bot.start()
+      consola.success('Bot started successfully')
     } catch (error) {
       consola.error('Failed to start bot:', error)
       process.exit(1)

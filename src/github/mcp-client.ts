@@ -13,24 +13,8 @@ export class GitHubMCPClient {
       // const result = await mcp_gitkraken_issues_assigned_to_me({ provider: 'github' })
 
       // Mock data for development - replace with actual MCP calls
-      return [
-        {
-          id: 1,
-          number: 123,
-          title: 'Add user authentication feature',
-          body: 'Implement user login and registration functionality. This should include:\n- [ ] User registration form\n- [ ] Login form\n- [ ] Password hashing\n- [ ] Session management',
-          state: 'open',
-          labels: [{ name: 'enhancement', color: '84cc16' }],
-          assignees: [{ login: 'bot-user', id: 1, avatarUrl: '' }],
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          url: 'https://github.com/test/repo/issues/123',
-          repository: {
-            owner: { login: 'test' },
-            name: 'repo',
-          },
-        },
-      ]
+      // For now, return empty array so user can create real test issues
+      return []
     } catch (error) {
       consola.error('Error fetching assigned issues via MCP:', error)
       return []
