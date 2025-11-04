@@ -3,7 +3,6 @@ export interface BotConfig {
   githubToken: string
   repositories: RepositoryConfig[]
   codexApiKey?: string
-  codexModel?: string
   interval: number
   maxConcurrent: number
   logLevel: 'debug' | 'info' | 'warn' | 'error'

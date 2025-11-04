@@ -28,7 +28,6 @@ export class GitHubMaintainBot {
     this.workspaceManager = new WorkspaceManager()
     this.codexClient = new CodexClient({
       apiKey: config.codexApiKey,
-      model: config.codexModel,
     })
   }
 

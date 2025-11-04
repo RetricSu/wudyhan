@@ -26,6 +26,32 @@ This project transforms the existing CLI TypeScript starter kit into a self-host
 - Configurable repository targeting
 - Automated testing and validation
 
+## Prerequisites
+
+### System Requirements
+
+- **Node.js**: 18+ (20 LTS recommended)
+- **Git**: 2.23+ for repository operations
+- **Codex CLI**: Latest version from npm
+
+### Codex CLI Installation
+
+The bot requires the OpenAI Codex CLI to be installed on the system:
+
+```bash
+# Install Codex CLI globally
+npm install -g @openai/codex
+
+# Verify installation
+codex --version
+```
+
+### Codex CLI Configuration
+
+The bot uses Codex CLI for AI-powered code generation. Configure Codex CLI with your preferred AI provider according to the [Codex CLI documentation](https://github.com/openai/codex).
+
+Set the `CODEX_API_KEY` environment variable in your `.env` file with your API key. The bot will automatically use this when running Codex CLI commands.
+
 ## Requirements
 
 ### Functional Requirements
@@ -75,7 +101,7 @@ This project transforms the existing CLI TypeScript starter kit into a self-host
 
 ### High-Level Architecture
 
-```
+```mermaid
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   GitHub MCP    │◄──►│   Bot Core      │◄──►│   Codex Exec    │
 │   Integration   │    │   Engine        │    │   AI Engine     │
@@ -243,10 +269,11 @@ This project transforms the existing CLI TypeScript starter kit into a self-host
 ```bash
 # Required: GitHub Integration
 GITHUB_TOKEN=your_github_personal_access_token
+GITHUB_REPOS=owner/repo,owner/repo2  # Comma-separated list of repositories to monitor
 
-# Required: AI Code Generation
-CODEX_API_KEY=your_codex_api_key
-CODEX_MODEL=gpt-4  # Optional: defaults to gpt-4
+# Required: AI Code Generation - Codex CLI Configuration
+# Set your API key for the AI provider configured in Codex CLI
+CODEX_API_KEY=your_api_key
 
 # Optional: Bot Behavior
 BOT_INTERVAL=300000  # Check interval in milliseconds (default: 5 minutes)
