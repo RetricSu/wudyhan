@@ -64,12 +64,39 @@ export class WorkspaceManager {
   async createBranch(repoDir: string, branchName: string): Promise<boolean> {
     try {
       await this.runGitCommand(repoDir, ['checkout', '-b', branchName])
-      consola.success(`Created and switched to branch: ${branchName}`)
+      consola.success(`Created new branch: ${branchName}`)
       return true
     } catch (error) {
       consola.error('Error creating branch:', error)
       return false
     }
+  }
+
+  async switchBranch(repoDir: string, branchName: string): Promise<boolean> {
+    try {
+      await this.runGitCommand(repoDir, ['checkout', branchName])
+      consola.success(`Switched to branch: ${branchName}`)
+      return true
+    } catch (error) {
+      consola.error('Error switching branch:', error)
+      return false
+    }
+  }
+
+  /**
+   * Get the default branch from remote repository
+   */
+  async getRemoteDefaultBranch(repoDir: string): Promise<string> {
+    try {
+      const remoteInfo = await this.runGitCommand(repoDir, ['remote', 'show', 'origin'])
+      const match = remoteInfo.match(/HEAD branch: (.+)/)
+      if (match && match[1]) {
+        return match[1].trim()
+      }
+    } catch (error) {
+      consola.warn('Failed to detect default branch from remote, using main:', error)
+    }
+    return 'main'
   }
 
   async getCurrentBranch(repoDir: string): Promise<string> {

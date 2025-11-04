@@ -24,7 +24,23 @@ export class GitHubClient {
     })
 
     if (!response.ok) {
-      throw new Error(`GitHub API error: ${response.status} ${response.statusText}`)
+      const errorBody = await response.text()
+      let errorMessage = `GitHub API error: ${response.status} ${response.statusText}`
+      try {
+        const errorJson = JSON.parse(errorBody)
+        if (errorJson.message) {
+          errorMessage += ` - ${errorJson.message}`
+        }
+        if (errorJson.errors) {
+          errorMessage += ` - ${JSON.stringify(errorJson.errors)}`
+        }
+      } catch {
+        // If parsing fails, include raw error body
+        if (errorBody) {
+          errorMessage += ` - ${errorBody.substring(0, 200)}`
+        }
+      }
+      throw new Error(errorMessage)
     }
 
     return response.json()

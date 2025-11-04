@@ -480,24 +480,18 @@ export async function createPRStep(ctx: StepContext): Promise<StepResult> {
       }
     }
 
-    // Check if PR already exists for this branch (idempotent)
-    const existingPR = await ctx.githubClient.getPullRequest(owner, repo, ctx.task.issueNumber)
-
-    if (existingPR) {
-      const checkpoints: TaskCheckpoints = {
-        ...ctx.task.checkpoints,
-        create_pr: {
-          prNumber: existingPR.number,
-          prUrl: existingPR.url,
-          timestamp: new Date().toISOString(),
-        },
+    // Detect the default branch (try main first, then master)
+    const repoDir = await ctx.workspaceManager.cloneRepository(owner, repo)
+    if (!repoDir) {
+      return {
+        success: false,
+        error: 'Failed to access repository',
+        shouldRetry: true,
       }
-
-      ctx.taskStore.updateTaskProgress(ctx.task.id, 'completed', checkpoints)
-      ctx.taskStore.updateTaskState(ctx.task.id, 'completed')
-      consola.success(`[Task ${ctx.task.id}] Using existing PR #${existingPR.number}`)
-      return { success: true }
     }
+
+    const defaultBranch = await ctx.workspaceManager.getRemoteDefaultBranch(repoDir)
+    consola.debug(`Using base branch: ${defaultBranch}`)
 
     // Create new PR
     const title = `🤖 Fix for issue #${ctx.task.issueNumber}: ${ctx.issue.title}`
@@ -505,7 +499,7 @@ export async function createPRStep(ctx: StepContext): Promise<StepResult> {
 
     const pr = await ctx.githubClient.createPullRequest(owner, repo, {
       head: branchName,
-      base: 'main',
+      base: defaultBranch,
       title,
       body,
     })
