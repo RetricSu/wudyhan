@@ -14,8 +14,8 @@ export class IssueManager {
 
   async getAssignedIssues(): Promise<Issue[]> {
     try {
-      // Use MCP client for getting assigned issues
-      const issues = await this.mcpClient.getAssignedIssues()
+      // Use GitHub REST API client for getting assigned issues
+      const issues = await this.client.getAssignedIssues()
       consola.debug(`Fetched ${issues.length} assigned issues`)
       return issues
     } catch (error) {

@@ -1,4 +1,4 @@
-import { consola } from 'consola'
+import consola from 'consola'
 import { Issue, PullRequest } from '../core/types'
 
 export class GitHubClient {
