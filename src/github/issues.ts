@@ -1,15 +1,12 @@
-import { consola } from 'consola'
+import consola from 'consola'
 import { Issue } from '../core/types'
 import { GitHubClient } from './client'
-import { GitHubMCPClient } from './mcp-client'
 
 export class IssueManager {
   private client: GitHubClient
-  private mcpClient: GitHubMCPClient
 
   constructor(client: GitHubClient) {
     this.client = client
-    this.mcpClient = new GitHubMCPClient()
   }
 
   async getAssignedIssues(): Promise<Issue[]> {

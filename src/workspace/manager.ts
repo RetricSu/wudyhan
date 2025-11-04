@@ -1,8 +1,8 @@
-import { exec, spawn } from 'child_process'
+import { exec, execFile } from 'child_process'
 import { promises as fs } from 'fs'
 import * as fsSync from 'fs'
 import * as path from 'path'
-import { consola } from 'consola'
+import consola from 'consola'
 
 export class WorkspaceManager {
   private baseDir: string
@@ -20,19 +20,43 @@ export class WorkspaceManager {
   }
 
   async cloneRepository(owner: string, repo: string, branch: string = 'main'): Promise<string | null> {
+    // Ensure workspace directory exists first
+    await this.ensureWorkspaceDir()
+
     const repoDir = path.join(this.baseDir, `${owner}-${repo}`)
 
     try {
       // Check if repo already exists
       await fs.access(repoDir)
       consola.info(`Repository ${owner}/${repo} already exists, pulling latest changes...`)
-      await this.runGitCommand(repoDir, ['pull', 'origin', branch])
+
+      // Check if the repository has any commits
+      try {
+        await this.runGitCommand(repoDir, ['rev-parse', 'HEAD'])
+        // Has commits, safe to pull
+        await this.runGitCommand(repoDir, ['pull', 'origin', branch])
+      } catch {
+        // Empty repo, just skip pull
+        consola.info('Repository is empty, skipping pull')
+      }
+
       return repoDir
     } catch {
       // Repo doesn't exist, clone it
       consola.info(`Cloning repository ${owner}/${repo}...`)
       await this.runGitCommand(this.baseDir, ['clone', `https://github.com/${owner}/${repo}.git`, `${owner}-${repo}`])
-      await this.runGitCommand(repoDir, ['checkout', branch])
+
+      // Check if the cloned repo has any commits
+      try {
+        await this.runGitCommand(repoDir, ['rev-parse', 'HEAD'])
+        // Has commits, checkout the branch
+        await this.runGitCommand(repoDir, ['checkout', branch])
+      } catch {
+        // Empty repo, create initial branch
+        consola.info('Repository is empty, creating initial branch')
+        await this.runGitCommand(repoDir, ['checkout', '-b', branch])
+      }
+
       return repoDir
     }
   }
@@ -310,28 +334,18 @@ export class WorkspaceManager {
 
   private async runGitCommand(cwd: string, args: string[]): Promise<string> {
     return new Promise((resolve, reject) => {
-      const git = spawn('git', args, { cwd })
-      let stdout = ''
-      let stderr = ''
+      consola.debug('Running git command:', 'git', args.join(' '))
 
-      git.stdout.on('data', (data: Buffer) => {
-        stdout += data.toString()
-      })
-
-      git.stderr.on('data', (data: Buffer) => {
-        stderr += data.toString()
-      })
-
-      git.on('close', (code: number | null) => {
-        if (code === 0) {
-          resolve(stdout.trim())
+      // Use execFile which doesn't require a shell
+      execFile('/usr/bin/git', args, { cwd }, (error, stdout, stderr) => {
+        if (error) {
+          consola.error('Git execFile error:', error)
+          consola.error('Git stderr:', stderr)
+          reject(new Error(`Git command failed: ${stderr || error.message}`))
         } else {
-          reject(new Error(`Git command failed: ${stderr}`))
+          consola.debug('Git stdout:', stdout.trim())
+          resolve(stdout.trim())
         }
-      })
-
-      git.on('error', (error: Error) => {
-        reject(new Error(`Git command failed: ${error.message}`))
       })
     })
   }

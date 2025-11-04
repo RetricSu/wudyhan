@@ -28,11 +28,8 @@ export class CodexClient {
     error?: string
   }> {
     return new Promise((resolve) => {
-      const args = ['exec', '--profile', 'k2', prompt]
-
-      if (this.options.nonInteractive) {
-        args.push('--non-interactive')
-      }
+      // Use --full-auto for non-interactive execution with workspace-write sandbox
+      const args = ['exec', '--profile', 'k2', '--full-auto', prompt]
 
       if (this.options.model) {
         args.push('--model', this.options.model)
