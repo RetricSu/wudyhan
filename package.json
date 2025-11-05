@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "A self-hosted GitHub maintenance bot that autonomously monitors assigned issues, performs coding tasks using AI, and submits pull requests. Built with TypeScript and designed for continuous repository maintenance.",
   "bin": {
-    "github-maintain-bot": "./bin/run"
+    "wudyhan": "./bin/run"
   },
   "directories": {
     "lib": "src",
