@@ -47,7 +47,7 @@ export class WorkspaceManager {
     } catch {
       // Repo doesn't exist, clone it
       consola.info(`Cloning repository ${owner}/${repo}...`)
-      await this.runGitCommand(this.baseDir, ['clone', `https://github.com/${owner}/${repo}.git`, `${owner}-${repo}`])
+      await this.runGitCommand(this.baseDir, ['clone', `git@github.com:${owner}/${repo}.git`, `${owner}-${repo}`])
 
       // Detect default branch if not specified
       const targetBranch = branch || (await this.getRemoteDefaultBranch(repoDir))

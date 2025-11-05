@@ -27,10 +27,33 @@ The bot uses a **stateful workflow engine** with the following components:
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) (v20 or higher)
-- [pnpm](https://pnpm.io/)
-- [Codex CLI](https://github.com/openai/codex) (optional, for AI code generation)
-- GitHub Personal Access Token with repo permissions
+## Prerequisites
+
+### Required
+
+- **[Node.js](https://nodejs.org/)** v20 or higher
+- **[pnpm](https://pnpm.io/)** - Fast, disk space efficient package manager
+- **[Git](https://git-scm.com/)** - Version control system
+- **GitHub SSH Key** - Configure SSH access to GitHub for repository cloning
+  - Follow [GitHub's SSH setup guide](https://docs.github.com/en/authentication/connecting-to-github-with-ssh)
+  - Verify with: `ssh -T git@github.com`
+- **GitHub Personal Access Token** - With `repo` permissions
+  - Create at: [GitHub Settings > Developer settings > Personal access tokens](https://github.com/settings/tokens)
+  - Required scopes: `repo` (Full control of private repositories)
+
+### Optional (for AI code generation)
+
+- **[Codex CLI](https://github.com/codex-cli/codex)** - AI-powered code generation tool
+  - Install: Follow the [Codex installation guide](https://github.com/codex-cli/codex#installation)
+  - Configure: Set up your Codex profile with API credentials
+  - Verify: Run `codex --version`
+
+### System Requirements
+
+- **Operating System**: macOS, Linux, or Windows (with WSL2)
+- **Memory**: At least 2GB RAM available
+- **Disk Space**: 500MB for dependencies and workspace
+- **SQLite**: Usually pre-installed on most systems
 
 ## Installation
 
