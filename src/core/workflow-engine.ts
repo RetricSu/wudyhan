@@ -102,11 +102,22 @@ export class WorkflowEngine {
         const result = await step.fn(ctx)
 
         if (!result.success) {
-          consola.error(`[Task ${task.id}] Step ${step.name} failed: ${result.error}`)
-          this.taskStore.logTask(task.id, 'error', `Step ${step.name} failed`, { error: result.error })
+          // Use different log level based on whether this is polling or a real failure
+          if (result.isPolling) {
+            consola.debug(`[Task ${task.id}] Step ${step.name} in progress: ${result.error}`)
+            this.taskStore.logTask(task.id, 'info', `Step ${step.name} in progress`, { message: result.error })
+          } else {
+            consola.error(`[Task ${task.id}] Step ${step.name} failed: ${result.error}`)
+            this.taskStore.logTask(task.id, 'error', `Step ${step.name} failed`, { error: result.error })
+          }
 
-          // Handle failure
-          await this.handleStepFailure(task, result.error || 'Unknown error', result.shouldRetry || false)
+          // Handle failure (pass isPolling flag to avoid incrementing retry count for polling)
+          await this.handleStepFailure(
+            task,
+            result.error || 'Unknown error',
+            result.shouldRetry || false,
+            result.isPolling || false,
+          )
           return
         }
 
@@ -137,29 +148,49 @@ export class WorkflowEngine {
   /**
    * Handle step failure with retry logic
    */
-  private async handleStepFailure(task: Task, errorMessage: string, shouldRetry: boolean): Promise<void> {
+  private async handleStepFailure(
+    task: Task,
+    errorMessage: string,
+    shouldRetry: boolean,
+    isPolling: boolean = false,
+  ): Promise<void> {
     // Determine if we should retry
+    // If shouldRetry is explicitly set to true by the step, trust that decision
+    // Otherwise, consult the retry manager
     const error = new Error(errorMessage)
-    const canRetry = this.retryManager.shouldRetry(task.retryCount, task.maxRetries, error) && shouldRetry
+    const canRetry = shouldRetry
+      ? task.retryCount < task.maxRetries // Simple count check when explicitly requested
+      : this.retryManager.shouldRetry(task.retryCount, task.maxRetries, error)
 
     if (canRetry) {
       // Calculate retry delay
       const delay = this.retryManager.calculateDelay(task.retryCount)
 
-      // Schedule retry
-      this.taskStore.incrementRetry(task.id, delay)
-      consola.warn(`[Task ${task.id}] Scheduled for retry in ${Math.floor(delay / 1000)}s`)
-      this.taskStore.logTask(task.id, 'warn', `Scheduled for retry`, { delay, retryCount: task.retryCount + 1 })
+      // If this is polling (not a real failure), don't increment retry count
+      if (isPolling) {
+        // Just reschedule without incrementing retry count
+        this.taskStore.updateTask(task.id, {
+          state: 'failed',
+          nextRetryAt: new Date(Date.now() + delay).toISOString(),
+          lastError: errorMessage,
+        })
+        consola.debug(`[Task ${task.id}] Polling - scheduled next check in ${Math.floor(delay / 1000)}s`)
+      } else {
+        // Real failure - increment retry count
+        this.taskStore.incrementRetry(task.id, delay)
+        consola.warn(`[Task ${task.id}] Scheduled for retry in ${Math.floor(delay / 1000)}s`)
+        this.taskStore.logTask(task.id, 'warn', `Scheduled for retry`, { delay, retryCount: task.retryCount + 1 })
 
-      // Post retry comment to issue
-      const [owner, repo] = task.repo.split('/')
-      if (owner && repo) {
-        await this.issueManager.updateIssueStatus(
-          owner,
-          repo,
-          task.issueNumber,
-          `⚠️ Task failed but will retry (attempt ${task.retryCount + 1}/${task.maxRetries}):\n\n${errorMessage}`,
-        )
+        // Post retry comment to issue
+        const [owner, repo] = task.repo.split('/')
+        if (owner && repo) {
+          await this.issueManager.updateIssueStatus(
+            owner,
+            repo,
+            task.issueNumber,
+            `⚠️ Task failed but will retry (attempt ${task.retryCount + 1}/${task.maxRetries}):\n\n${errorMessage}`,
+          )
+        }
       }
     } else {
       // Move to dead letter

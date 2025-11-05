@@ -47,6 +47,7 @@ export class GitHubMaintainBot {
     this.workspaceManager = new WorkspaceManager()
     this.codexClient = new CodexClient({
       apiKey: config.codexApiKey,
+      provider: config.codexProfile || 'k2', // Use configured profile or default to k2
       maxSteps: config.codexMaxSteps,
       maxExecutionTime: config.codexMaxExecutionTime,
     })

@@ -81,6 +81,11 @@ export class CodexJobManager {
 
     args.push(options.prompt)
 
+    // Log for debugging (mask API key)
+    const apiKey = options.codexOptions.apiKey
+    const maskedKey = apiKey ? `${apiKey.substring(0, 8)}...${apiKey.substring(apiKey.length - 4)}` : 'NOT SET'
+    consola.debug(`[Job ${jobId}] Starting codex with API key: ${maskedKey}`)
+
     // Spawn the process
     const codex = spawn('codex', args, {
       stdio: ['ignore', 'pipe', 'pipe'],

@@ -77,16 +77,17 @@ export class CommentMonitor {
   private async pollCommands(): Promise<void> {
     try {
       // Get all active tasks (pending or in_progress)
+      // Monitor tasks that are active or could be retried
       const tasks = this.taskStore.getTasks({
-        state: ['pending', 'in_progress'],
+        state: ['pending', 'in_progress', 'failed', 'dead_letter'],
       })
 
       if (tasks.length === 0) {
-        consola.debug('No active tasks to monitor for commands')
+        consola.debug('No tasks to monitor for commands')
         return
       }
 
-      consola.debug(`Polling commands for ${tasks.length} active tasks`)
+      consola.debug(`Polling commands for ${tasks.length} tasks`)
 
       // Check each task for new comments
       for (const task of tasks) {
@@ -117,8 +118,8 @@ export class CommentMonitor {
       const comments = await this.githubClient.getIssueComments(owner, repo, task.issueNumber, since)
 
       if (comments.length === 0) {
-        // Update last check time even if no comments
-        this.taskStore.updateLastCommentCheck(task.id)
+        // Don't update last_comment_check_at if no comments found
+        // This ensures we don't skip comments that were posted before the check
         return
       }
 

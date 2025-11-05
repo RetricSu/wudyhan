@@ -214,6 +214,10 @@ export class CommandExecutor {
    * Retry command: Reset task to pending
    */
   private async executeRetry(task: Task): Promise<CommandResult> {
+    // Clear codex_generate checkpoint to force a fresh start
+    const clearedCheckpoints = { ...task.checkpoints }
+    delete clearedCheckpoints.codex_generate
+
     this.taskStore.updateTask(task.id, {
       state: 'pending',
       retryCount: 0,
@@ -221,14 +225,15 @@ export class CommandExecutor {
       lastError: null,
       workerId: null,
       lockExpiresAt: null,
+      checkpoints: clearedCheckpoints,
     })
     this.taskStore.updateCommandState(task.id, null)
     this.taskStore.setPauseRequested(task.id, false)
 
-    consola.info(`Task ${task.id} reset for retry`)
+    consola.info(`Task ${task.id} reset for retry (cleared codex checkpoint)`)
     return {
       success: true,
-      message: `🔄 Task queued for retry. The task has been reset to pending state.`,
+      message: `🔄 Task queued for retry. The task has been reset to pending state with fresh codex session.`,
     }
   }
 

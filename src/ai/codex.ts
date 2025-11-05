@@ -127,7 +127,12 @@ export class CodexClient {
   }> {
     return new Promise((resolve) => {
       // Use --full-auto for non-interactive execution with workspace-write sandbox
-      const args = ['exec', '--profile', 'k2', '--full-auto']
+      const args = ['exec', '--full-auto']
+
+      // Use profile if specified
+      if (this.options.provider) {
+        args.push('--profile', this.options.provider)
+      }
 
       // Set working directory if provided
       if (workingDir) {

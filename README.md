@@ -54,17 +54,18 @@ Create a `.env` file in the root directory:
 ```env
 # GitHub Configuration
 GITHUB_TOKEN=ghp_your_github_token_here
+GITHUB_REPOS=owner/repo1,owner/repo2  # Comma-separated list of repositories to monitor
 
 # Codex AI Configuration (optional)
 CODEX_API_KEY=your_codex_api_key_here
+CODEX_PROFILE=k2                      # Codex profile to use (default: k2)
 CODEX_MAX_STEPS=50                    # Max agent iterations to prevent token drain (default: 50)
 CODEX_MAX_EXECUTION_TIME=1800         # Max execution time in seconds (default: 1800 = 30 min)
 
 # Bot Configuration
-MAX_CONCURRENT=3
-MAX_RETRIES=5
-POLL_INTERVAL=10000
-LOG_LEVEL=info
+BOT_INTERVAL=300000                   # Check interval in milliseconds (default: 5 minutes)
+BOT_MAX_CONCURRENT=3                  # Maximum concurrent issue processing (default: 3)
+BOT_LOG_LEVEL=info                    # Logging level: debug, info, warn, error (default: info)
 ```
 
 ### 4. Build the project

@@ -3,6 +3,7 @@ export interface BotConfig {
   githubToken: string
   repositories: RepositoryConfig[]
   codexApiKey?: string
+  codexProfile?: string // Codex profile to use (default: 'k2')
   interval: number
   maxConcurrent: number
   logLevel: 'debug' | 'info' | 'warn' | 'error'

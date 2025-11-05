@@ -35,20 +35,10 @@ describe('CodexClient', () => {
 
       const result = await executePromise
 
-      // Verify spawn was called with correct arguments
+      // Verify spawn was called with correct arguments (no --profile when provider not set)
       expect(mockSpawn).toHaveBeenCalledWith(
         'codex',
-        [
-          'exec',
-          '--profile',
-          'k2',
-          '--full-auto',
-          '--cd',
-          '/test/dir',
-          '--config',
-          'agent.max_iterations=50',
-          'test prompt',
-        ],
+        ['exec', '--full-auto', '--cd', '/test/dir', '--config', 'agent.max_iterations=50', 'test prompt'],
         expect.objectContaining({
           stdio: ['pipe', 'pipe', 'pipe'],
         }),

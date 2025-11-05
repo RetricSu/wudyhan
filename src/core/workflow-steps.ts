@@ -26,6 +26,7 @@ export interface StepResult {
   success: boolean
   error?: string
   shouldRetry?: boolean
+  isPolling?: boolean // True if this is a polling wait (don't increment retry count)
 }
 
 /**
@@ -213,16 +214,6 @@ export async function codexGenerateStep(ctx: StepContext): Promise<StepResult> {
       }
     }
 
-    const repoDir = await ctx.workspaceManager.cloneRepository(owner, repo)
-
-    if (!repoDir) {
-      return {
-        success: false,
-        error: 'Failed to access repository',
-        shouldRetry: true,
-      }
-    }
-
     // Check if codex job is already running or completed
     let codexCheckpoint = ctx.task.checkpoints.codex_generate
 
@@ -231,9 +222,9 @@ export async function codexGenerateStep(ctx: StepContext): Promise<StepResult> {
       return { success: true }
     }
 
-    // If job ID exists, check status
+    // If job ID exists, check status (don't clone/pull while polling)
     if (codexCheckpoint?.jobId) {
-      consola.info(`[Task ${ctx.task.id}] Resuming codex job ${codexCheckpoint.jobId}`)
+      consola.debug(`[Task ${ctx.task.id}] Checking status of codex job ${codexCheckpoint.jobId}`)
       const status = await ctx.codexClient.getJobStatus(codexCheckpoint.jobId)
 
       if (status.completed) {
@@ -252,6 +243,15 @@ export async function codexGenerateStep(ctx: StepContext): Promise<StepResult> {
         consola.success(`[Task ${ctx.task.id}] Codex generation completed`)
         return { success: true }
       } else if (status.failed) {
+        // Job failed, clear checkpoint so next retry starts fresh
+        consola.warn(`[Task ${ctx.task.id}] Codex job failed, will start new job on retry`)
+        const clearedCheckpoints = { ...ctx.task.checkpoints }
+        delete clearedCheckpoints.codex_generate
+
+        ctx.taskStore.updateTask(ctx.task.id, {
+          checkpoints: clearedCheckpoints,
+        })
+
         return {
           success: false,
           error: status.error || 'Codex job failed',
@@ -260,10 +260,23 @@ export async function codexGenerateStep(ctx: StepContext): Promise<StepResult> {
       }
 
       // Job still running, keep polling
-      consola.info(`[Task ${ctx.task.id}] Codex job still running...`)
+      consola.debug(`[Task ${ctx.task.id}] Codex job still running...`)
       return {
         success: false,
         error: 'Codex job in progress',
+        shouldRetry: true,
+        isPolling: true, // This is polling, not a real failure
+      }
+    }
+
+    // No existing job, need to start a new one
+    // First, clone/pull repository
+    const repoDir = await ctx.workspaceManager.cloneRepository(owner, repo)
+
+    if (!repoDir) {
+      return {
+        success: false,
+        error: 'Failed to access repository',
         shouldRetry: true,
       }
     }
@@ -310,6 +323,7 @@ export async function codexGenerateStep(ctx: StepContext): Promise<StepResult> {
         success: false,
         error: 'Codex job started, waiting for completion',
         shouldRetry: true,
+        isPolling: true, // This is polling, not a real failure
       }
     }
 

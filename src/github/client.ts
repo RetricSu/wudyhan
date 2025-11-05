@@ -95,7 +95,17 @@ export class GitHubClient {
   }
 
   async getIssue(owner: string, repo: string, issueNumber: number): Promise<Issue> {
-    return this.makeRequest(`/repos/${owner}/${repo}/issues/${issueNumber}`) as Promise<Issue>
+    const issue = (await this.makeRequest(`/repos/${owner}/${repo}/issues/${issueNumber}`)) as Issue
+
+    // Ensure repository info is present for permission checking
+    if (!issue.repository) {
+      issue.repository = {
+        owner: { login: owner },
+        name: repo,
+      }
+    }
+
+    return issue
   }
 
   async getPullRequest(owner: string, repo: string, prNumber: number): Promise<PullRequest> {

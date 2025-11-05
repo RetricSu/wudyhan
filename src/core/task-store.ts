@@ -283,6 +283,10 @@ export class TaskStore {
       fields.push('current_step = ?')
       values.push(updates.currentStep)
     }
+    if (updates.checkpoints !== undefined) {
+      fields.push('checkpoints = ?')
+      values.push(JSON.stringify(updates.checkpoints))
+    }
 
     if (fields.length === 0) return false
 
