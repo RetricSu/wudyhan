@@ -28,7 +28,7 @@ export class TaskDatabase {
     const currentVersion = this.getCurrentVersion()
     consola.info(`Current database version: ${currentVersion}`)
 
-    const migrations = [this.migration_v1, this.migration_v2]
+    const migrations = [this.migration_v1, this.migration_v2, this.migration_v3]
 
     for (let i = currentVersion; i < migrations.length; i++) {
       consola.info(`Running migration ${i + 1}...`)
@@ -105,6 +105,45 @@ export class TaskDatabase {
 
       CREATE INDEX IF NOT EXISTS idx_task_logs_task_id ON task_logs(task_id);
       CREATE INDEX IF NOT EXISTS idx_task_logs_created_at ON task_logs(created_at);
+    `)
+  }
+
+  /**
+   * Migration v3: Add command system support
+   */
+  private migration_v3(): void {
+    // Add new fields to tasks table for command system
+    this.db.exec(`
+      -- Add command_state to track pause/stop states
+      ALTER TABLE tasks ADD COLUMN command_state TEXT DEFAULT NULL 
+        CHECK(command_state IS NULL OR command_state IN ('paused', 'stopped'));
+      
+      -- Add pause_requested flag for workflow engine to check
+      ALTER TABLE tasks ADD COLUMN pause_requested INTEGER DEFAULT 0;
+      
+      -- Add last_comment_check_at for efficient polling
+      ALTER TABLE tasks ADD COLUMN last_comment_check_at TEXT DEFAULT NULL;
+    `)
+
+    // Create task_commands table for audit trail
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS task_commands (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        command TEXT NOT NULL,
+        comment_id INTEGER NOT NULL,
+        comment_author TEXT NOT NULL,
+        comment_body TEXT NOT NULL,
+        executed_at TEXT NOT NULL,
+        result TEXT NOT NULL CHECK(result IN ('success', 'failed', 'ignored')),
+        error_message TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_task_commands_task_id ON task_commands(task_id);
+      CREATE INDEX IF NOT EXISTS idx_task_commands_executed_at ON task_commands(executed_at);
+      CREATE INDEX IF NOT EXISTS idx_task_commands_comment_id ON task_commands(comment_id);
     `)
   }
 

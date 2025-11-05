@@ -25,6 +25,7 @@ export interface Issue {
   state: 'open' | 'closed'
   labels: Label[]
   assignees: User[]
+  user?: User // Issue author
   createdAt: string
   updatedAt: string
   url: string

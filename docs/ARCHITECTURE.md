@@ -265,21 +265,114 @@ Benefits:
 
 ```
 src/core/
-  ├── task.ts           # Task model and types
-  ├── database.ts       # SQLite database and migrations
-  ├── task-store.ts     # Task persistence layer
-  ├── retry-manager.ts  # Retry logic with backoff
-  ├── workflow-steps.ts # Individual workflow step implementations
-  ├── workflow-engine.ts # Step orchestration
-  ├── worker.ts         # Worker process
-  └── bot.ts            # Main bot (scanner + worker)
+  ├── task.ts              # Task model and types
+  ├── database.ts          # SQLite database and migrations
+  ├── task-store.ts        # Task persistence layer
+  ├── retry-manager.ts     # Retry logic with backoff
+  ├── workflow-steps.ts    # Individual workflow step implementations
+  ├── workflow-engine.ts   # Step orchestration
+  ├── worker.ts            # Worker process
+  ├── bot.ts               # Main bot (scanner + worker)
+  ├── codex-job-store.ts   # [NEW] Codex job persistence
+  └── codex-job-manager.ts # [NEW] Async codex execution manager
+
+src/ai/
+  └── codex.ts             # [UPDATED] Codex client with job tracking
+
+src/github/
+  ├── client.ts            # GitHub API client
+  ├── issues.ts            # Issue management
+  └── pull-requests.ts     # PR management
+```
+
+## Phase 1 Completed: Async Codex Job Management ✅
+
+**Status**: ✅ Implemented (2025-11-05)
+
+### Features
+
+1. **Async Job Execution**
+
+   - Codex runs in background via `spawn()`
+   - Non-blocking task execution
+   - Real-time stdout/stderr logging
+
+2. **Process Monitoring**
+
+   - Track PID, logs, session ID
+   - Check process alive via `process.kill(pid, 0)`
+   - Parse JSONL for session metadata
+
+3. **Auto Resume on Crash**
+
+   - Worker startup scans orphaned jobs
+   - Automatically resumes via `codex exec resume <session-id>`
+   - Preserves work-in-progress
+
+4. **Timeout Protection**
+
+   - Default 30-minute max execution time
+   - Configurable via `CODEX_MAX_EXECUTION_TIME`
+   - Auto-kill on timeout
+
+5. **Max Steps Control**
+   - Limit agent iterations via `--config agent.max_iterations=N`
+   - Default 50 iterations
+   - Configurable via `CODEX_MAX_STEPS`
+   - Prevents token drain
+
+### Database Schema
+
+New `codex_jobs` table:
+
+```sql
+CREATE TABLE codex_jobs (
+  job_id TEXT PRIMARY KEY,
+  session_id TEXT,              -- Codex CLI session UUID
+  pid INTEGER,                  -- Process ID
+  state TEXT NOT NULL,          -- running | completed | failed | killed | resuming
+  prompt TEXT NOT NULL,
+  working_dir TEXT,
+  options TEXT NOT NULL,
+  stdout_path TEXT NOT NULL,
+  stderr_path TEXT NOT NULL,
+  jsonl_path TEXT,
+  exit_code INTEGER,
+  error TEXT,
+  output TEXT,
+  started_at TEXT NOT NULL,
+  completed_at TEXT,
+  last_heartbeat TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+```
+
+### File Structure
+
+```
+data/
+  ├── tasks.db                    # Main database
+  └── codex-jobs/                 # Job logs
+      └── <job-id>/
+          ├── stdout.log
+          ├── stderr.log
+          └── session.jsonl       # Codex session data
 ```
 
 ## Future Enhancements
 
-1. **Codex Job Tracking**: Implement actual `codex status` polling if codex supports async jobs
-2. **Advanced Testing**: Add integration tests for crash/recovery scenarios
-3. **Monitoring**: Add Prometheus metrics for task states, retry counts, etc.
-4. **Multi-repo Support**: Enhanced fingerprinting for cross-repo dependencies
-5. **Task Priorities**: Add priority queue for urgent issues
-6. **Manual Interventions**: CLI commands to manually advance/reset tasks
+### Phase 2: Command System via Comments (Planned)
+
+- User control via GitHub issue comments
+- Commands: @bot stop, @bot pause, @bot continue, @bot retry, @bot status
+- Real-time task control
+- See [PHASE2_COMMAND_SYSTEM.md](./PHASE2_COMMAND_SYSTEM.md) for details
+
+### Phase 3+: Additional Features
+
+1. **Advanced Testing**: Add integration tests for crash/recovery scenarios
+2. **Monitoring**: Add Prometheus metrics for task states, retry counts, etc.
+3. **Multi-repo Support**: Enhanced fingerprinting for cross-repo dependencies
+4. **Task Priorities**: Add priority queue for urgent issues
+5. **Webhook Support**: Replace polling with GitHub webhooks for real-time updates

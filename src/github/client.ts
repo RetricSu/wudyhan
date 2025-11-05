@@ -129,4 +129,52 @@ export class GitHubClient {
       body: JSON.stringify({ body }),
     }) as Promise<{ id: number; body: string }>
   }
+
+  /**
+   * Get comments for an issue
+   * @param owner - Repository owner
+   * @param repo - Repository name
+   * @param issueNumber - Issue number
+   * @param since - Optional ISO 8601 timestamp to filter comments created after this time
+   * @returns Array of comments
+   */
+  async getIssueComments(
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    since?: string,
+  ): Promise<
+    Array<{
+      id: number
+      user: { login: string; id: number }
+      body: string
+      created_at: string
+      updated_at: string
+    }>
+  > {
+    try {
+      let endpoint = `/repos/${owner}/${repo}/issues/${issueNumber}/comments`
+      if (since) {
+        endpoint += `?since=${encodeURIComponent(since)}`
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const comments = (await this.makeRequest(endpoint)) as any[]
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return comments.map((comment: any) => ({
+        id: comment.id,
+        user: {
+          login: comment.user.login,
+          id: comment.user.id,
+        },
+        body: comment.body,
+        created_at: comment.created_at,
+        updated_at: comment.updated_at,
+      }))
+    } catch (error) {
+      consola.error(`Error fetching comments for issue #${issueNumber}:`, error)
+      return []
+    }
+  }
 }

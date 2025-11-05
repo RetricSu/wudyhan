@@ -11,6 +11,7 @@ import { Worker } from './worker'
 import { RetryManager } from './retry-manager'
 import { CodexJobStore } from './codex-job-store'
 import { CodexJobManager } from './codex-job-manager'
+import { CommentMonitor } from '../github/comment-monitor'
 import { sha256 } from './task'
 
 export class GitHubMaintainBot {
@@ -37,6 +38,7 @@ export class GitHubMaintainBot {
   private retryManager: RetryManager
   private codexJobStore: CodexJobStore
   private codexJobManager: CodexJobManager
+  private commentMonitor: CommentMonitor
 
   constructor(config: BotConfig) {
     this.config = config
@@ -73,6 +75,12 @@ export class GitHubMaintainBot {
       lockRenewalInterval: 60000, // 1 minute
       maxConcurrentTasks: config.maxConcurrent || 3,
     })
+
+    // Initialize comment monitor for command system
+    this.commentMonitor = new CommentMonitor(this.taskStore, this.githubClient, {
+      pollInterval: 30000, // 30 seconds
+      enabled: true,
+    })
   }
 
   async start(): Promise<void> {
@@ -97,6 +105,9 @@ export class GitHubMaintainBot {
 
     // Start the worker
     await this.worker.start()
+
+    // Start the comment monitor
+    this.commentMonitor.start()
 
     // Run initial issue scan immediately
     consola.debug('Running initial issue scan...')
@@ -124,6 +135,9 @@ export class GitHubMaintainBot {
       clearInterval(this.scanIntervalId)
       this.scanIntervalId = undefined
     }
+
+    // Stop the comment monitor
+    this.commentMonitor.stop()
 
     // Stop the worker
     await this.worker.stop()

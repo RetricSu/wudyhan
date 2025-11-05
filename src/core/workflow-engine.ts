@@ -89,6 +89,14 @@ export class WorkflowEngine {
         const step = steps[i]
         if (!step) continue
 
+        // Check if task is paused before executing next step
+        const refreshedTask = this.taskStore.getTask(task.id)
+        if (refreshedTask?.pauseRequested) {
+          consola.info(`[Task ${task.id}] Pause requested, stopping workflow execution`)
+          this.taskStore.logTask(task.id, 'info', 'Workflow paused by user command')
+          return // Exit gracefully - task will resume when pause is lifted
+        }
+
         consola.info(`[Task ${task.id}] Executing step: ${step.name}`)
 
         const result = await step.fn(ctx)

@@ -77,6 +77,10 @@ export interface Task {
   lockExpiresAt?: string | null // lock expiration timestamp
   createdAt: string
   updatedAt: string
+  // Command system fields (Phase 2)
+  commandState?: 'paused' | 'stopped' | null
+  pauseRequested?: boolean
+  lastCommentCheckAt?: string | null
 }
 
 export interface CreateTaskInput {

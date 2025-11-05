@@ -247,6 +247,57 @@ export class TaskStore {
   }
 
   /**
+   * Generic update task method for flexible field updates
+   */
+  updateTask(taskId: string, updates: Partial<Task>): boolean {
+    const now = new Date().toISOString()
+    const fields: string[] = []
+    const values: unknown[] = []
+
+    // Map allowed fields for update
+    if (updates.state !== undefined) {
+      fields.push('state = ?')
+      values.push(updates.state)
+    }
+    if (updates.lastError !== undefined) {
+      fields.push('last_error = ?')
+      values.push(updates.lastError)
+    }
+    if (updates.retryCount !== undefined) {
+      fields.push('retry_count = ?')
+      values.push(updates.retryCount)
+    }
+    if (updates.nextRetryAt !== undefined) {
+      fields.push('next_retry_at = ?')
+      values.push(updates.nextRetryAt)
+    }
+    if (updates.workerId !== undefined) {
+      fields.push('worker_id = ?')
+      values.push(updates.workerId)
+    }
+    if (updates.lockExpiresAt !== undefined) {
+      fields.push('lock_expires_at = ?')
+      values.push(updates.lockExpiresAt)
+    }
+    if (updates.currentStep !== undefined) {
+      fields.push('current_step = ?')
+      values.push(updates.currentStep)
+    }
+
+    if (fields.length === 0) return false
+
+    fields.push('updated_at = ?')
+    values.push(now)
+    values.push(taskId)
+
+    const query = `UPDATE tasks SET ${fields.join(', ')} WHERE id = ?`
+    const stmt = this.db.prepare(query)
+    const result = stmt.run(...values)
+
+    return result.changes > 0
+  }
+
+  /**
    * Update task current step and checkpoints
    */
   updateTaskProgress(taskId: string, currentStep: WorkflowStep, checkpoints: TaskCheckpoints): boolean {
@@ -363,6 +414,107 @@ export class TaskStore {
   }
 
   /**
+   * Update command state (for pause/stop)
+   */
+  updateCommandState(taskId: string, commandState: 'paused' | 'stopped' | null): boolean {
+    const now = new Date().toISOString()
+    const stmt = this.db.prepare(`
+      UPDATE tasks 
+      SET command_state = ?, 
+          updated_at = ?
+      WHERE id = ?
+    `)
+
+    const result = stmt.run(commandState, now, taskId)
+    return result.changes > 0
+  }
+
+  /**
+   * Set pause requested flag
+   */
+  setPauseRequested(taskId: string, requested: boolean): boolean {
+    const now = new Date().toISOString()
+    const stmt = this.db.prepare(`
+      UPDATE tasks 
+      SET pause_requested = ?, 
+          updated_at = ?
+      WHERE id = ?
+    `)
+
+    const result = stmt.run(requested ? 1 : 0, now, taskId)
+    return result.changes > 0
+  }
+
+  /**
+   * Update last comment check timestamp
+   */
+  updateLastCommentCheck(taskId: string): boolean {
+    const now = new Date().toISOString()
+    const stmt = this.db.prepare(`
+      UPDATE tasks 
+      SET last_comment_check_at = ?, 
+          updated_at = ?
+      WHERE id = ?
+    `)
+
+    const result = stmt.run(now, now, taskId)
+    return result.changes > 0
+  }
+
+  /**
+   * Record a command execution
+   */
+  recordCommand(input: {
+    taskId: string
+    command: string
+    commentId: number
+    commentAuthor: string
+    commentBody: string
+    result: 'success' | 'failed' | 'ignored'
+    errorMessage?: string
+  }): boolean {
+    const now = new Date().toISOString()
+    const stmt = this.db.prepare(`
+      INSERT INTO task_commands (
+        task_id, command, comment_id, comment_author, comment_body,
+        executed_at, result, error_message, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    try {
+      stmt.run(
+        input.taskId,
+        input.command,
+        input.commentId,
+        input.commentAuthor,
+        input.commentBody,
+        now,
+        input.result,
+        input.errorMessage || null,
+        now,
+      )
+      return true
+    } catch (error) {
+      consola.error('Error recording command:', error)
+      return false
+    }
+  }
+
+  /**
+   * Get commands for a task
+   */
+  getTaskCommands(taskId: string, limit: number = 50): Record<string, unknown>[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM task_commands 
+      WHERE task_id = ? 
+      ORDER BY executed_at DESC 
+      LIMIT ?
+    `)
+
+    return stmt.all(taskId, limit) as Record<string, unknown>[]
+  }
+
+  /**
    * Convert database row to Task object
    */
   private rowToTask(row: Record<string, unknown>): Task {
@@ -383,6 +535,10 @@ export class TaskStore {
       lockExpiresAt: row.lock_expires_at as string | null | undefined,
       createdAt: row.created_at as string,
       updatedAt: row.updated_at as string,
+      // Command system fields
+      commandState: row.command_state as 'paused' | 'stopped' | null | undefined,
+      pauseRequested: Boolean(row.pause_requested),
+      lastCommentCheckAt: row.last_comment_check_at as string | null | undefined,
     }
   }
 }

@@ -179,6 +179,92 @@ LOCK_LEASE_DURATION=300000    # Task lock duration (ms)
 LOG_LEVEL=info                # debug | info | warn | error
 ```
 
+## Command System (Phase 2)
+
+You can control bot tasks directly from GitHub issue comments! Just mention `@bot` with a command:
+
+### Available Commands
+
+#### 🛑 Stop a Task
+
+```
+@bot stop
+```
+
+Aliases: `@bot abort`, `@bot cancel`
+
+Immediately stops the current task and marks it as failed.
+
+#### ⏸️ Pause a Task
+
+```
+@bot pause
+```
+
+Aliases: `@bot hold`
+
+Pauses the task execution. The task will pause at the next workflow step.
+
+#### ▶️ Continue a Task
+
+```
+@bot continue
+```
+
+Aliases: `@bot resume`
+
+Resumes a paused task. The workflow will continue from where it was paused.
+
+#### 🔄 Retry a Task
+
+```
+@bot retry
+```
+
+Aliases: `@bot restart`
+
+Retries a failed or dead-letter task. The task is reset to pending state.
+
+#### 📊 Get Task Status
+
+```
+@bot status
+```
+
+Displays the current status of the task, including:
+
+- Current state (pending, in_progress, completed, failed)
+- Current workflow step
+- Retry count
+- Any errors
+
+#### ℹ️ Get Help
+
+```
+@bot help
+```
+
+Shows all available commands and their usage.
+
+### Command Permissions
+
+Only the following users can control tasks via comments:
+
+- **Issue assignees** - Users assigned to the issue
+- **Repository owner** - The owner of the repository
+- **Issue author** - The user who created the issue
+
+### Command Monitoring
+
+The bot polls for new commands every 30 seconds. When a command is detected:
+
+1. ✅ Command is parsed and validated
+2. 🔐 Permissions are checked
+3. ⚙️ Command is executed
+4. 💬 Result is posted as a comment reply
+
+All command executions are logged in the database for audit purposes.
+
 ## How It Works
 
 ### Workflow Steps
