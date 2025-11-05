@@ -438,7 +438,7 @@ export class CodexJobManager {
     if (code === 0) {
       // Success - extract AI summary immediately before async operations
       const aiSummary = this.extractLastAgentMessage(job)
-      
+
       this.readJobOutput(job)
         .then((output) => {
           this.jobStore.updateJob(jobId, {

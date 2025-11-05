@@ -209,7 +209,7 @@ export class CommandExecutor {
     // If in waiting_feedback state, intelligently decide whether to resume or restart
     if (task.state === 'waiting_feedback') {
       const codexCheckpoint = task.checkpoints.codex_generate
-      
+
       // Check if we have a session ID to resume from
       if (codexCheckpoint?.jobId) {
         // Mark as ready to resume - the workflow will handle the resume logic

@@ -228,29 +228,30 @@ export async function codexGenerateStep(ctx: StepContext): Promise<StepResult> {
     // Handle resume request from user command
     if (ctx.task.commandState === 'resume_requested' && codexCheckpoint?.jobId) {
       consola.info(`[Task ${ctx.task.id}] Resume requested for job ${codexCheckpoint.jobId}`)
-      
+
       // Collect feedbacks
       const feedbacks = await getFeedbacks(ctx)
-      const feedbackPrompt = feedbacks.length > 0 
-        ? `User feedback:\n${feedbacks.map((f, i) => `${i + 1}. ${f}`).join('\n')}\n\nPlease continue and address the above feedback.`
-        : undefined
+      const feedbackPrompt =
+        feedbacks.length > 0
+          ? `User feedback:\n${feedbacks.map((f, i) => `${i + 1}. ${f}`).join('\n')}\n\nPlease continue and address the above feedback.`
+          : undefined
 
       try {
         // Get the old job to find session ID
         const oldJobStatus = await ctx.codexClient.getJobStatus(codexCheckpoint.jobId)
-        
+
         if (!oldJobStatus.sessionId) {
           consola.warn(`[Task ${ctx.task.id}] No session ID found, cannot resume. Starting fresh instead.`)
           // Clear checkpoint and let it restart below
           const clearedCheckpoints = { ...ctx.task.checkpoints }
           delete clearedCheckpoints.codex_generate
           delete clearedCheckpoints.post_results
-          
+
           ctx.taskStore.updateTask(ctx.task.id, {
             checkpoints: clearedCheckpoints,
           })
           ctx.taskStore.updateCommandState(ctx.task.id, null)
-          
+
           // Fall through to normal start logic
           codexCheckpoint = undefined
         } else {
@@ -283,7 +284,7 @@ export async function codexGenerateStep(ctx: StepContext): Promise<StepResult> {
           }
 
           const newJobId = await ctx.codexClient.resumeJob(codexCheckpoint.jobId, feedbackPrompt)
-          
+
           // Update checkpoint with new job ID
           const checkpoints: TaskCheckpoints = {
             ...ctx.task.checkpoints,
@@ -299,7 +300,7 @@ export async function codexGenerateStep(ctx: StepContext): Promise<StepResult> {
           ctx.taskStore.updateCommandState(ctx.task.id, null)
 
           consola.info(`[Task ${ctx.task.id}] Codex job resumed: ${newJobId}`)
-          
+
           return {
             success: false,
             error: 'Codex job resumed, waiting for completion',
@@ -314,7 +315,7 @@ export async function codexGenerateStep(ctx: StepContext): Promise<StepResult> {
         const clearedCheckpoints = { ...ctx.task.checkpoints }
         delete clearedCheckpoints.codex_generate
         delete clearedCheckpoints.post_results
-        
+
         ctx.taskStore.updateTask(ctx.task.id, {
           checkpoints: clearedCheckpoints,
         })
