@@ -200,7 +200,12 @@ export class GitHubMaintainBot {
       const repo = `${issue.repository.owner.login}/${issue.repository.name}`
 
       // Get current repo HEAD SHA (for fingerprint)
-      const repoHeadSha = issue.repository.owner.login // Placeholder - should get actual HEAD SHA
+      const repoHeadSha = await this.githubClient.getRepoHeadSha(issue.repository.owner.login, issue.repository.name)
+
+      if (!repoHeadSha) {
+        consola.warn(`Failed to get HEAD SHA for ${repo}, skipping issue #${issue.number}`)
+        return
+      }
 
       // Calculate issue body hash
       const issueBodySha = sha256(issue.body || '')

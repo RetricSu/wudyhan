@@ -211,20 +211,22 @@ export class TaskStore {
   }
 
   /**
-   * Release the lock on a task
+   * Release lock on a task (allows it to be claimed again immediately)
    */
   releaseLock(taskId: string): boolean {
     const now = new Date().toISOString()
+    // Set lock_expires_at to current time (already expired) so task can be claimed immediately
+    const expiredTime = now
 
     const stmt = this.db.prepare(`
       UPDATE tasks 
       SET worker_id = NULL,
-          lock_expires_at = NULL,
+          lock_expires_at = ?,
           updated_at = ?
       WHERE id = ? AND worker_id = ?
     `)
 
-    const result = stmt.run(now, taskId, this.workerId)
+    const result = stmt.run(expiredTime, now, taskId, this.workerId)
     return result.changes > 0
   }
 

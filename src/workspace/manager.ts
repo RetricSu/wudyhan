@@ -155,7 +155,10 @@ export class WorkspaceManager {
 
   async commitChanges(repoDir: string, message: string): Promise<boolean> {
     try {
-      await this.runGitCommand(repoDir, ['add', '.'])
+      // Add all changes but exclude backup files created by codex
+      // Using pathspec to exclude patterns
+      await this.runGitCommand(repoDir, ['add', '.', ':!*.backup', ':!*.bak', ':!*~'])
+
       await this.runGitCommand(repoDir, ['commit', '-m', message])
       consola.success('Changes committed successfully')
       return true
@@ -411,6 +414,35 @@ export class WorkspaceManager {
     }
 
     return null
+  }
+
+  /**
+   * Get git diff for a specific branch (unstaged + staged changes)
+   */
+  async getGitDiff(repoDir: string): Promise<string> {
+    try {
+      // Get diff of all changes (staged and unstaged)
+      const diff = await this.runGitCommand(repoDir, ['diff', 'HEAD'])
+      return diff
+    } catch (error) {
+      consola.error('Error getting git diff:', error)
+      return ''
+    }
+  }
+
+  /**
+   * Get list of changed files (unstaged + staged)
+   */
+  async getChangedFiles(repoDir: string): Promise<string[]> {
+    try {
+      // Get all changed files (both staged and unstaged)
+      const output = await this.runGitCommand(repoDir, ['diff', '--name-only', 'HEAD'])
+      if (!output) return []
+      return output.split('\n').filter((line) => line.trim())
+    } catch (error) {
+      consola.error('Error getting changed files:', error)
+      return []
+    }
   }
 
   private async runGitCommand(cwd: string, args: string[], silenceExpectedErrors: boolean = false): Promise<string> {

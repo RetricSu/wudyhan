@@ -21,6 +21,7 @@ const COMMAND_ALIASES: Record<string, BotCommand> = {
   hold: 'pause',
   continue: 'continue',
   resume: 'continue',
+  approve: 'continue', // Approve is same as continue
   retry: 'retry',
   restart: 'retry',
   status: 'status',
@@ -89,17 +90,24 @@ export class CommandParser {
 
 - \`@bot stop\` (or \`abort\`, \`cancel\`) - Stop the current task
 - \`@bot pause\` (or \`hold\`) - Pause the current task
-- \`@bot continue\` (or \`resume\`) - Resume a paused task
-- \`@bot retry\` (or \`restart\`) - Retry a failed task
+- \`@bot continue\` (or \`resume\`, \`approve\`) - Continue/approve the current task
+- \`@bot retry\` (or \`restart\`) - Retry a failed task or regenerate code with feedback
 - \`@bot status\` - Get current task status
-- \`@bot feedback <message>\` - Provide feedback or guidance for the task
+- \`@bot feedback <message>\` - Provide feedback or guidance for code generation
 - \`@bot help\` - Show this help message
+
+**Approval Workflow:**
+When code generation completes, the bot will post results and wait for your approval:
+1. Review the changes
+2. Either approve with \`@bot continue\` or \`@bot approve\`
+3. Or provide feedback with \`@bot feedback <message>\` then \`@bot retry\`
 
 **Examples:**
 \`\`\`
 @bot pause
 @bot feedback Please use async/await instead of callbacks
-@bot continue
+@bot retry
+@bot approve
 @bot status
 \`\`\`
 `

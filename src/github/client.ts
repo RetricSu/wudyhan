@@ -187,4 +187,57 @@ export class GitHubClient {
       return []
     }
   }
+
+  /**
+   * Create a comment on an issue
+   * @param owner - Repository owner
+   * @param repo - Repository name
+   * @param issueNumber - Issue number
+   * @param body - Comment body
+   * @returns Created comment details
+   */
+  async createComment(
+    owner: string,
+    repo: string,
+    issueNumber: number,
+    body: string,
+  ): Promise<{ id: number; url: string }> {
+    try {
+      const comment = (await this.makeRequest(`/repos/${owner}/${repo}/issues/${issueNumber}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ body }),
+      })) as { id: number; html_url: string }
+
+      return {
+        id: comment.id,
+        url: comment.html_url,
+      }
+    } catch (error) {
+      consola.error(`Error creating comment on issue #${issueNumber}:`, error)
+      throw error
+    }
+  }
+
+  /**
+   * Get the HEAD SHA of the default branch for a repository
+   * @param owner Repository owner
+   * @param repo Repository name
+   * @returns The SHA of the latest commit on the default branch
+   */
+  async getRepoHeadSha(owner: string, repo: string): Promise<string | null> {
+    try {
+      // Get repository info to find default branch
+      const repoInfo = (await this.makeRequest(`/repos/${owner}/${repo}`)) as { default_branch: string }
+      const defaultBranch = repoInfo.default_branch
+
+      // Get the branch info to get the HEAD SHA
+      const branchInfo = (await this.makeRequest(`/repos/${owner}/${repo}/branches/${defaultBranch}`)) as {
+        commit: { sha: string }
+      }
+      return branchInfo.commit.sha
+    } catch (error) {
+      consola.error(`Error getting repo HEAD SHA for ${owner}/${repo}:`, error)
+      return null
+    }
+  }
 }

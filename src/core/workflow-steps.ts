@@ -30,7 +30,7 @@ export interface StepResult {
 }
 
 /**
- * Step 1: Plan - Create a deterministic patch description
+ * Step 1: Plan - Prepare issue description for AI
  */
 export async function planStep(ctx: StepContext): Promise<StepResult> {
   try {
@@ -42,20 +42,11 @@ export async function planStep(ctx: StepContext): Promise<StepResult> {
       return { success: true }
     }
 
-    // Analyze the issue to create plan
-    const analysis = await ctx.issueManager.analyzeIssue(ctx.issue)
-
-    if (!analysis.canHandle || analysis.tasks.length === 0) {
-      return {
-        success: false,
-        error: 'Issue cannot be handled automatically or has no tasks',
-        shouldRetry: false,
-      }
-    }
+    // Simple plan: just combine title and body for AI
+    const fullDescription = `# ${ctx.issue.title}\n\n${ctx.issue.body || ''}`
 
     const plan = {
-      description: ctx.issue.body || '',
-      tasks: analysis.tasks,
+      description: fullDescription,
       timestamp: new Date().toISOString(),
     }
 
@@ -66,7 +57,7 @@ export async function planStep(ctx: StepContext): Promise<StepResult> {
     }
 
     ctx.taskStore.updateTaskProgress(ctx.task.id, 'branch', checkpoints)
-    consola.success(`[Task ${ctx.task.id}] Plan created with ${analysis.tasks.length} tasks`)
+    consola.success(`[Task ${ctx.task.id}] Plan created from issue description`)
 
     return { success: true }
   } catch (error) {
@@ -112,6 +103,10 @@ export async function branchStep(ctx: StepContext): Promise<StepResult> {
       }
     }
 
+    // Ensure we're on the default branch first
+    const defaultBranch = await ctx.workspaceManager.getRemoteDefaultBranch(repoDir)
+    await ctx.workspaceManager.switchBranch(repoDir, defaultBranch)
+
     // Get current HEAD SHA
     const headSha = ctx.task.repoHeadSha
 
@@ -123,7 +118,7 @@ export async function branchStep(ctx: StepContext): Promise<StepResult> {
     const branchExists = existingBranches.some((b) => b === branchName)
 
     if (!branchExists) {
-      // Create the branch
+      // Create the branch from default branch
       const created = await ctx.workspaceManager.createBranch(repoDir, branchName)
       if (!created) {
         return {
@@ -134,7 +129,15 @@ export async function branchStep(ctx: StepContext): Promise<StepResult> {
       }
     } else {
       consola.debug(`Branch ${branchName} already exists, checking it out`)
-      // Checkout existing branch - handled by workspace manager
+      // Switch to existing branch
+      const switched = await ctx.workspaceManager.switchBranch(repoDir, branchName)
+      if (!switched) {
+        return {
+          success: false,
+          error: 'Failed to switch to existing branch',
+          shouldRetry: true,
+        }
+      }
     }
 
     // Update checkpoints
@@ -186,8 +189,8 @@ async function getFeedbacks(ctx: StepContext): Promise<string[]> {
 /**
  * Helper: Build prompt with feedbacks
  */
-function buildPromptWithFeedback(baseTasks: string[], feedbacks: string[]): string {
-  let prompt = baseTasks.join('\n')
+function buildPromptWithFeedback(issueDescription: string, feedbacks: string[]): string {
+  let prompt = issueDescription
 
   if (feedbacks.length > 0) {
     prompt += '\n\n--- User Feedbacks ---\n'
@@ -239,7 +242,7 @@ export async function codexGenerateStep(ctx: StepContext): Promise<StepResult> {
           },
         }
 
-        ctx.taskStore.updateTaskProgress(ctx.task.id, 'run_tests', checkpoints)
+        ctx.taskStore.updateTaskProgress(ctx.task.id, 'post_results', checkpoints)
         consola.success(`[Task ${ctx.task.id}] Codex generation completed`)
         return { success: true }
       } else if (status.failed) {
@@ -281,6 +284,26 @@ export async function codexGenerateStep(ctx: StepContext): Promise<StepResult> {
       }
     }
 
+    // Ensure we're on the correct branch before running codex
+    const branchName = ctx.task.checkpoints.branch?.name
+    if (!branchName) {
+      return {
+        success: false,
+        error: 'Branch name not found in checkpoints',
+        shouldRetry: false,
+      }
+    }
+
+    consola.debug(`Switching to branch: ${branchName}`)
+    const switched = await ctx.workspaceManager.switchBranch(repoDir, branchName)
+    if (!switched) {
+      return {
+        success: false,
+        error: 'Failed to switch to task branch',
+        shouldRetry: true,
+      }
+    }
+
     // Start new codex job
     const plan = ctx.task.checkpoints.plan
     if (!plan) {
@@ -297,8 +320,8 @@ export async function codexGenerateStep(ctx: StepContext): Promise<StepResult> {
       consola.info(`[Task ${ctx.task.id}] Found ${feedbacks.length} user feedback(s)`)
     }
 
-    // Build prompt from tasks with feedbacks
-    const prompt = buildPromptWithFeedback(plan.tasks, feedbacks)
+    // Build prompt from issue description with feedbacks
+    const prompt = buildPromptWithFeedback(plan.description, feedbacks)
 
     // Execute codex
     const result = await ctx.codexClient.executeWithJobTracking(prompt, undefined, repoDir)
@@ -346,7 +369,7 @@ export async function codexGenerateStep(ctx: StepContext): Promise<StepResult> {
       },
     }
 
-    ctx.taskStore.updateTaskProgress(ctx.task.id, 'run_tests', checkpoints)
+    ctx.taskStore.updateTaskProgress(ctx.task.id, 'post_results', checkpoints)
     consola.success(`[Task ${ctx.task.id}] Codex generation completed`)
 
     return { success: true }
@@ -361,7 +384,148 @@ export async function codexGenerateStep(ctx: StepContext): Promise<StepResult> {
 }
 
 /**
- * Step 4: Run Tests - Execute test suite
+ * Step 4: Post Results - Show changes to user and wait for approval
+ */
+export async function postResultsStep(ctx: StepContext): Promise<StepResult> {
+  try {
+    consola.info(`[Task ${ctx.task.id}] Post results step - waiting for user approval`)
+
+    const [owner, repo] = ctx.task.repo.split('/')
+    if (!owner || !repo) {
+      return {
+        success: false,
+        error: `Invalid repository format: ${ctx.task.repo}`,
+        shouldRetry: false,
+      }
+    }
+
+    const repoDir = await ctx.workspaceManager.cloneRepository(owner, repo)
+    if (!repoDir) {
+      return {
+        success: false,
+        error: 'Failed to access repository',
+        shouldRetry: true,
+      }
+    }
+
+    // Get branch name from checkpoint
+    const branchCheckpoint = ctx.task.checkpoints.branch
+    if (!branchCheckpoint) {
+      return {
+        success: false,
+        error: 'Branch checkpoint not found',
+        shouldRetry: false,
+      }
+    }
+
+    // Collect git diff
+    const gitDiff = await ctx.workspaceManager.getGitDiff(repoDir)
+    const filesChanged = await ctx.workspaceManager.getChangedFiles(repoDir)
+
+    // Build results comment
+    const commentBody = buildResultsComment({
+      taskId: ctx.task.id,
+      branchName: branchCheckpoint.name,
+      filesChanged,
+      diffPreview: gitDiff.slice(0, 2000), // Limit preview to 2000 chars
+      codexCheckpoint: ctx.task.checkpoints.codex_generate,
+    })
+
+    // Post comment to GitHub
+    const comment = await ctx.githubClient.createComment(owner, repo, ctx.task.issueNumber, commentBody)
+
+    // Update task state to waiting_feedback
+    const checkpoints: TaskCheckpoints = {
+      ...ctx.task.checkpoints,
+      post_results: {
+        commentId: comment.id,
+        commentUrl: comment.url,
+        filesChanged: filesChanged.length,
+        timestamp: new Date().toISOString(),
+      },
+    }
+
+    // Important: Set state to waiting_feedback instead of moving to next step
+    ctx.taskStore.updateTask(ctx.task.id, {
+      state: 'waiting_feedback',
+      currentStep: 'post_results',
+      checkpoints: checkpoints,
+    })
+
+    consola.success(`[Task ${ctx.task.id}] Results posted, waiting for user approval (comment: ${comment.url})`)
+
+    return { success: true }
+  } catch (error) {
+    consola.error(`[Task ${ctx.task.id}] Post results step failed:`, error)
+    return {
+      success: false,
+      error: (error as Error).message,
+      shouldRetry: true,
+    }
+  }
+}
+
+/**
+ * Helper: Build results comment for user review
+ */
+function buildResultsComment(params: {
+  taskId: string
+  branchName: string
+  filesChanged: string[]
+  diffPreview: string
+  codexCheckpoint?: TaskCheckpoints['codex_generate']
+}): string {
+  const { taskId, branchName, filesChanged, diffPreview, codexCheckpoint } = params
+
+  let comment = `## 🤖 Code Generation Completed\n\n`
+  comment += `**Task ID:** ${taskId}\n`
+  comment += `**Branch:** \`${branchName}\`\n\n`
+
+  if (codexCheckpoint) {
+    comment += `### 📊 Execution Summary\n\n`
+    comment += `- **Job ID:** ${codexCheckpoint.jobId}\n`
+    comment += `- **Started:** ${new Date(codexCheckpoint.startedAt).toLocaleString()}\n`
+    if (codexCheckpoint.completedAt) {
+      comment += `- **Completed:** ${new Date(codexCheckpoint.completedAt).toLocaleString()}\n`
+    }
+    comment += `\n`
+  }
+
+  comment += `### 📝 Files Modified (${filesChanged.length})\n\n`
+  if (filesChanged.length > 0) {
+    filesChanged.slice(0, 10).forEach((file) => {
+      comment += `- \`${file}\`\n`
+    })
+    if (filesChanged.length > 10) {
+      comment += `- ... and ${filesChanged.length - 10} more files\n`
+    }
+  } else {
+    comment += `_No files modified_\n`
+  }
+
+  comment += `\n### 🔍 Changes Preview\n\n`
+  if (diffPreview) {
+    comment += `<details>\n<summary>Click to see diff preview</summary>\n\n`
+    comment += `\`\`\`diff\n${diffPreview}\n\`\`\``
+    if (diffPreview.length >= 2000) {
+      comment += `\n\n_Diff truncated. View full changes in the branch._`
+    }
+    comment += `\n</details>\n\n`
+  }
+
+  comment += `### ✅ Next Steps\n\n`
+  comment += `Please review the changes and choose an action:\n\n`
+  comment += `- **Approve and continue:** \`@bot continue\` or \`@bot approve\` - Create a PR with these changes\n`
+  comment += `- **Request changes:** \`@bot feedback <your feedback>\` then \`@bot retry\` - AI will regenerate with your feedback\n`
+  comment += `- **Pause:** \`@bot pause\` - Pause this task for later\n`
+  comment += `- **Stop:** \`@bot stop\` - Cancel this task\n`
+  comment += `- **Check status:** \`@bot status\` - View current task details\n`
+
+  return comment
+}
+
+/**
+ * Step 5: Run Tests - Execute test suite
  */
 export async function runTestsStep(ctx: StepContext): Promise<StepResult> {
   try {
@@ -456,6 +620,17 @@ export async function commitAndPushStep(ctx: StepContext): Promise<StepResult> {
         success: false,
         error: 'Branch name not found',
         shouldRetry: false,
+      }
+    }
+
+    // Ensure we're on the correct branch
+    consola.debug(`Ensuring on branch: ${branchName}`)
+    const switched = await ctx.workspaceManager.switchBranch(repoDir, branchName)
+    if (!switched) {
+      return {
+        success: false,
+        error: 'Failed to switch to task branch',
+        shouldRetry: true,
       }
     }
 

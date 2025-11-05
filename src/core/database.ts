@@ -28,7 +28,7 @@ export class TaskDatabase {
     const currentVersion = this.getCurrentVersion()
     consola.info(`Current database version: ${currentVersion}`)
 
-    const migrations = [this.migration_v1, this.migration_v2, this.migration_v3]
+    const migrations = [this.migration_v1, this.migration_v2, this.migration_v3, this.migration_v4]
 
     for (let i = currentVersion; i < migrations.length; i++) {
       consola.info(`Running migration ${i + 1}...`)
@@ -144,6 +144,61 @@ export class TaskDatabase {
       CREATE INDEX IF NOT EXISTS idx_task_commands_task_id ON task_commands(task_id);
       CREATE INDEX IF NOT EXISTS idx_task_commands_executed_at ON task_commands(executed_at);
       CREATE INDEX IF NOT EXISTS idx_task_commands_comment_id ON task_commands(comment_id);
+    `)
+  }
+
+  /**
+   * Migration v4: Add new task states for approval workflow
+   */
+  private migration_v4(): void {
+    // SQLite doesn't support modifying CHECK constraints directly
+    // We need to recreate the table with the new constraint
+
+    this.db.exec(`
+      -- Create new table with updated state constraint
+      CREATE TABLE tasks_new (
+        id TEXT PRIMARY KEY,
+        issue_number INTEGER NOT NULL,
+        repo TEXT NOT NULL,
+        repo_head_sha TEXT NOT NULL,
+        fingerprint TEXT UNIQUE NOT NULL,
+        state TEXT NOT NULL CHECK(state IN ('pending', 'in_progress', 'waiting_feedback', 'paused', 'stopped', 'completed', 'failed', 'dead_letter')),
+        current_step TEXT,
+        checkpoints TEXT NOT NULL DEFAULT '{}',
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        max_retries INTEGER NOT NULL DEFAULT 5,
+        next_retry_at TEXT,
+        last_error TEXT,
+        worker_id TEXT,
+        lock_expires_at TEXT,
+        command_state TEXT DEFAULT NULL CHECK(command_state IS NULL OR command_state IN ('paused', 'stopped')),
+        pause_requested INTEGER DEFAULT 0,
+        last_comment_check_at TEXT DEFAULT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      -- Copy data from old table
+      INSERT INTO tasks_new 
+      SELECT id, issue_number, repo, repo_head_sha, fingerprint, state, current_step, 
+             checkpoints, retry_count, max_retries, next_retry_at, last_error, 
+             worker_id, lock_expires_at, command_state, pause_requested, last_comment_check_at,
+             created_at, updated_at
+      FROM tasks;
+
+      -- Drop old table
+      DROP TABLE tasks;
+
+      -- Rename new table
+      ALTER TABLE tasks_new RENAME TO tasks;
+
+      -- Recreate indexes
+      CREATE INDEX IF NOT EXISTS idx_tasks_state ON tasks(state);
+      CREATE INDEX IF NOT EXISTS idx_tasks_fingerprint ON tasks(fingerprint);
+      CREATE INDEX IF NOT EXISTS idx_tasks_repo_issue ON tasks(repo, issue_number);
+      CREATE INDEX IF NOT EXISTS idx_tasks_worker ON tasks(worker_id);
+      CREATE INDEX IF NOT EXISTS idx_tasks_lock_expires ON tasks(lock_expires_at);
+      CREATE INDEX IF NOT EXISTS idx_tasks_next_retry ON tasks(next_retry_at);
     `)
   }
 

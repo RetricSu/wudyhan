@@ -76,10 +76,9 @@ export class CommentMonitor {
    */
   private async pollCommands(): Promise<void> {
     try {
-      // Get all active tasks (pending or in_progress)
-      // Monitor tasks that are active or could be retried
+      // Get all active tasks (pending, in_progress, waiting_feedback, or failed/dead_letter that could be retried)
       const tasks = this.taskStore.getTasks({
-        state: ['pending', 'in_progress', 'failed', 'dead_letter'],
+        state: ['pending', 'in_progress', 'waiting_feedback', 'failed', 'dead_letter'],
       })
 
       if (tasks.length === 0) {
@@ -152,6 +151,13 @@ export class CommentMonitor {
     issue: any,
   ): Promise<void> {
     try {
+      // Skip comments posted by the bot itself (from post_results step)
+      const botCommentId = task.checkpoints.post_results?.commentId
+      if (botCommentId && comment.id === botCommentId) {
+        consola.debug(`Skipping bot's results comment ${comment.id}`)
+        return
+      }
+
       // Parse command from comment
       const parsedCommand = this.parser.parse(comment.body)
 

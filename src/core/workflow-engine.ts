@@ -12,6 +12,7 @@ import {
   planStep,
   branchStep,
   codexGenerateStep,
+  postResultsStep,
   runTestsStep,
   commitAndPushStep,
   createPRStep,
@@ -73,6 +74,7 @@ export class WorkflowEngine {
         { name: 'plan', fn: planStep },
         { name: 'branch', fn: branchStep },
         { name: 'codex_generate', fn: codexGenerateStep },
+        { name: 'post_results', fn: postResultsStep },
         { name: 'run_tests', fn: runTestsStep },
         { name: 'commit_and_push', fn: commitAndPushStep },
         { name: 'create_pr', fn: createPRStep },
@@ -106,28 +108,36 @@ export class WorkflowEngine {
           if (result.isPolling) {
             consola.debug(`[Task ${task.id}] Step ${step.name} in progress: ${result.error}`)
             this.taskStore.logTask(task.id, 'info', `Step ${step.name} in progress`, { message: result.error })
+
+            // For polling, just release the lock and let the task be picked up again
+            // Don't mark as failed or set retry time
+            this.taskStore.releaseLock(task.id)
+            consola.debug(`[Task ${task.id}] Released lock for polling, task remains in_progress`)
+            return
           } else {
             consola.error(`[Task ${task.id}] Step ${step.name} failed: ${result.error}`)
             this.taskStore.logTask(task.id, 'error', `Step ${step.name} failed`, { error: result.error })
           }
 
-          // Handle failure (pass isPolling flag to avoid incrementing retry count for polling)
-          await this.handleStepFailure(
-            task,
-            result.error || 'Unknown error',
-            result.shouldRetry || false,
-            result.isPolling || false,
-          )
+          // Handle failure (only for real failures, not polling)
+          await this.handleStepFailure(task, result.error || 'Unknown error', result.shouldRetry || false)
           return
         }
 
         consola.success(`[Task ${task.id}] Step ${step.name} completed`)
         this.taskStore.logTask(task.id, 'info', `Step ${step.name} completed`)
 
-        // Refresh task to get latest checkpoints
+        // Refresh task to get latest checkpoints and state
         const updatedTask = this.taskStore.getTask(task.id)
         if (updatedTask) {
           ctx.task = updatedTask
+
+          // If task is now waiting_feedback, stop workflow execution
+          if (updatedTask.state === 'waiting_feedback') {
+            consola.info(`[Task ${task.id}] Workflow paused - waiting for user feedback/approval`)
+            this.taskStore.logTask(task.id, 'info', 'Waiting for user feedback/approval')
+            return // Exit workflow - will resume when user approves or retries
+          }
         }
       }
 
@@ -148,49 +158,31 @@ export class WorkflowEngine {
   /**
    * Handle step failure with retry logic
    */
-  private async handleStepFailure(
-    task: Task,
-    errorMessage: string,
-    shouldRetry: boolean,
-    isPolling: boolean = false,
-  ): Promise<void> {
+  private async handleStepFailure(task: Task, errorMessage: string, shouldRetry: boolean): Promise<void> {
     // Determine if we should retry
-    // If shouldRetry is explicitly set to true by the step, trust that decision
-    // Otherwise, consult the retry manager
     const error = new Error(errorMessage)
     const canRetry = shouldRetry
-      ? task.retryCount < task.maxRetries // Simple count check when explicitly requested
+      ? task.retryCount < task.maxRetries
       : this.retryManager.shouldRetry(task.retryCount, task.maxRetries, error)
 
     if (canRetry) {
       // Calculate retry delay
       const delay = this.retryManager.calculateDelay(task.retryCount)
 
-      // If this is polling (not a real failure), don't increment retry count
-      if (isPolling) {
-        // Just reschedule without incrementing retry count
-        this.taskStore.updateTask(task.id, {
-          state: 'failed',
-          nextRetryAt: new Date(Date.now() + delay).toISOString(),
-          lastError: errorMessage,
-        })
-        consola.debug(`[Task ${task.id}] Polling - scheduled next check in ${Math.floor(delay / 1000)}s`)
-      } else {
-        // Real failure - increment retry count
-        this.taskStore.incrementRetry(task.id, delay)
-        consola.warn(`[Task ${task.id}] Scheduled for retry in ${Math.floor(delay / 1000)}s`)
-        this.taskStore.logTask(task.id, 'warn', `Scheduled for retry`, { delay, retryCount: task.retryCount + 1 })
+      // Increment retry count and schedule retry
+      this.taskStore.incrementRetry(task.id, delay)
+      consola.warn(`[Task ${task.id}] Scheduled for retry in ${Math.floor(delay / 1000)}s`)
+      this.taskStore.logTask(task.id, 'warn', `Scheduled for retry`, { delay, retryCount: task.retryCount + 1 })
 
-        // Post retry comment to issue
-        const [owner, repo] = task.repo.split('/')
-        if (owner && repo) {
-          await this.issueManager.updateIssueStatus(
-            owner,
-            repo,
-            task.issueNumber,
-            `⚠️ Task failed but will retry (attempt ${task.retryCount + 1}/${task.maxRetries}):\n\n${errorMessage}`,
-          )
-        }
+      // Post retry comment to issue
+      const [owner, repo] = task.repo.split('/')
+      if (owner && repo) {
+        await this.issueManager.updateIssueStatus(
+          owner,
+          repo,
+          task.issueNumber,
+          `⚠️ Task failed but will retry (attempt ${task.retryCount + 1}/${task.maxRetries}):\n\n${errorMessage}`,
+        )
       }
     } else {
       // Move to dead letter

@@ -29,12 +29,12 @@ export interface CommandResult {
  * State transition rules for commands
  */
 const VALID_TRANSITIONS: Record<BotCommand, TaskState[]> = {
-  stop: ['pending', 'in_progress'],
-  pause: ['in_progress'],
-  continue: ['in_progress'], // requires commandState='paused'
-  retry: ['failed', 'dead_letter'],
-  status: ['pending', 'in_progress', 'completed', 'failed', 'dead_letter'],
-  help: ['pending', 'in_progress', 'completed', 'failed', 'dead_letter'],
+  stop: ['pending', 'in_progress', 'waiting_feedback', 'paused'],
+  pause: ['in_progress', 'waiting_feedback'],
+  continue: ['in_progress', 'waiting_feedback'], // Can continue from paused (commandState='paused') or waiting_feedback
+  retry: ['failed', 'dead_letter', 'waiting_feedback'], // Can retry after failure or to regenerate code
+  status: ['pending', 'in_progress', 'waiting_feedback', 'paused', 'stopped', 'completed', 'failed', 'dead_letter'],
+  help: ['pending', 'in_progress', 'waiting_feedback', 'paused', 'stopped', 'completed', 'failed', 'dead_letter'],
 }
 
 export class CommandExecutor {
@@ -125,9 +125,11 @@ export class CommandExecutor {
     const validStates = VALID_TRANSITIONS[command]
     if (!validStates) return false
 
-    // Special case for continue: must be in paused state
+    // Special case for continue: can be paused OR waiting_feedback
     if (command === 'continue') {
-      return task.state === 'in_progress' && task.commandState === 'paused'
+      const isPaused = task.state === 'in_progress' && task.commandState === 'paused'
+      const isWaitingFeedback = task.state === 'waiting_feedback'
+      return isPaused || isWaitingFeedback
     }
 
     return validStates.includes(task.state)
@@ -197,9 +199,24 @@ export class CommandExecutor {
   }
 
   /**
-   * Continue command: Clear pause flag
+   * Continue command: Clear pause flag or approve code generation
    */
   private async executeContinue(task: Task): Promise<CommandResult> {
+    // If in waiting_feedback state, move to next step (commit_and_push)
+    if (task.state === 'waiting_feedback') {
+      this.taskStore.updateTask(task.id, {
+        state: 'in_progress',
+        currentStep: 'commit_and_push',
+      })
+
+      consola.info(`Task ${task.id} approved - moving to commit and push`)
+      return {
+        success: true,
+        message: `✅ Code changes approved! Moving to commit and push phase.`,
+      }
+    }
+
+    // If paused, clear pause flag
     this.taskStore.setPauseRequested(task.id, false)
     this.taskStore.updateCommandState(task.id, null)
 
@@ -211,10 +228,30 @@ export class CommandExecutor {
   }
 
   /**
-   * Retry command: Reset task to pending
+   * Retry command: Reset task to regenerate code or recover from failure
    */
   private async executeRetry(task: Task): Promise<CommandResult> {
-    // Clear codex_generate checkpoint to force a fresh start
+    // If in waiting_feedback state, go back to codex_generate to regenerate
+    if (task.state === 'waiting_feedback') {
+      // Clear codex_generate and post_results checkpoints to regenerate with feedback
+      const clearedCheckpoints = { ...task.checkpoints }
+      delete clearedCheckpoints.codex_generate
+      delete clearedCheckpoints.post_results
+
+      this.taskStore.updateTask(task.id, {
+        state: 'in_progress',
+        currentStep: 'codex_generate',
+        checkpoints: clearedCheckpoints,
+      })
+
+      consola.info(`Task ${task.id} reset to regenerate code with feedback`)
+      return {
+        success: true,
+        message: `🔄 Regenerating code with your feedback...`,
+      }
+    }
+
+    // If failed, clear codex_generate checkpoint to force a fresh start
     const clearedCheckpoints = { ...task.checkpoints }
     delete clearedCheckpoints.codex_generate
 
@@ -244,6 +281,9 @@ export class CommandExecutor {
     const stateEmoji: Record<TaskState, string> = {
       pending: '⏳',
       in_progress: '🔄',
+      waiting_feedback: '⏸️',
+      paused: '⏸️',
+      stopped: '🛑',
       completed: '✅',
       failed: '❌',
       dead_letter: '💀',

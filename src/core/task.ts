@@ -2,22 +2,30 @@
  * Task model and types for the workflow state machine
  */
 
-export type TaskState = 'pending' | 'in_progress' | 'completed' | 'failed' | 'dead_letter'
+export type TaskState =
+  | 'pending'
+  | 'in_progress'
+  | 'waiting_feedback' // Waiting for user approval/feedback
+  | 'paused'
+  | 'stopped'
+  | 'completed'
+  | 'failed'
+  | 'dead_letter'
 
 export type WorkflowStep =
   | 'plan'
   | 'branch'
   | 'codex_generate'
+  | 'post_results' // Post results and wait for user approval
   | 'run_tests'
   | 'commit_and_push'
   | 'create_pr'
   | 'completed'
 
 export interface TaskCheckpoints {
-  // Plan step
+  // Plan step - simplified: just stores the full issue description
   plan?: {
-    description: string
-    tasks: string[]
+    description: string // Full issue title + body
     timestamp: string
   }
 
@@ -35,6 +43,14 @@ export interface TaskCheckpoints {
     completedAt?: string
     commitSha?: string
     filesModified?: string[]
+  }
+
+  // Post results step - show changes to user and wait for approval
+  post_results?: {
+    commentId: number
+    commentUrl: string
+    filesChanged: number
+    timestamp: string
   }
 
   // Tests step
