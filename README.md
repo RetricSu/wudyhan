@@ -234,10 +234,12 @@ Retries a failed or dead-letter task. The task is reset to pending state.
 Provide guidance, suggestions, or corrections to help the bot improve its work.
 
 **When to use:**
+
 - Before the task starts - provide context or constraints
 - After stopping a task - explain what went wrong and how to fix it
 
 **Examples:**
+
 ```
 @bot feedback Please use TypeScript strict mode
 @bot feedback Add error handling for network timeouts
@@ -246,12 +248,14 @@ Provide guidance, suggestions, or corrections to help the bot improve its work.
 ```
 
 **How it works:**
+
 - All feedbacks are collected from issue comments
 - When starting a new Codex job, all feedbacks are injected into the AI prompt
 - The AI takes your suggestions into account when generating code
 - Feedbacks persist in the issue - no need to repeat them
 
 **Best workflow:**
+
 ```
 1. Task runs and generates code
 2. You notice an issue: @bot stop
