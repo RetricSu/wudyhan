@@ -6,6 +6,8 @@ export interface BotConfig {
   interval: number
   maxConcurrent: number
   logLevel: 'debug' | 'info' | 'warn' | 'error'
+  codexMaxSteps?: number // Max agent iterations (default: 50)
+  codexMaxExecutionTime?: number // Max execution time in seconds (default: 1800)
 }
 
 export interface RepositoryConfig {

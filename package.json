@@ -55,6 +55,7 @@
     "@types/node": "^20.12.12",
     "@types/prompts": "^2.4.9",
     "@types/signale": "^1.4.7",
+    "@types/uuid": "^11.0.0",
     "@types/yargs": "^17.0.32",
     "@typescript-eslint/eslint-plugin": "^6.21.0",
     "@typescript-eslint/parser": "^6.21.0",
@@ -86,6 +87,7 @@
     "nanoid": "^3.3.7",
     "node-cron": "^3.0.3",
     "picocolors": "^1.0.1",
+    "uuid": "^13.0.0",
     "yargs": "^17.7.2"
   },
   "config": {

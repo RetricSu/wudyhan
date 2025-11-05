@@ -38,7 +38,17 @@ describe('CodexClient', () => {
       // Verify spawn was called with correct arguments
       expect(mockSpawn).toHaveBeenCalledWith(
         'codex',
-        ['exec', '--profile', 'k2', '--full-auto', '--cd', '/test/dir', 'test prompt'],
+        [
+          'exec',
+          '--profile',
+          'k2',
+          '--full-auto',
+          '--cd',
+          '/test/dir',
+          '--config',
+          'agent.max_iterations=50',
+          'test prompt',
+        ],
         expect.objectContaining({
           stdio: ['pipe', 'pipe', 'pipe'],
         }),

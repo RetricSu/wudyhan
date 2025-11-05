@@ -9,6 +9,8 @@ import { TaskStore } from './task-store'
 import { WorkflowEngine } from './workflow-engine'
 import { Worker } from './worker'
 import { RetryManager } from './retry-manager'
+import { CodexJobStore } from './codex-job-store'
+import { CodexJobManager } from './codex-job-manager'
 import { sha256 } from './task'
 
 export class GitHubMaintainBot {
@@ -33,6 +35,8 @@ export class GitHubMaintainBot {
   private workflowEngine: WorkflowEngine
   private worker: Worker
   private retryManager: RetryManager
+  private codexJobStore: CodexJobStore
+  private codexJobManager: CodexJobManager
 
   constructor(config: BotConfig) {
     this.config = config
@@ -41,12 +45,21 @@ export class GitHubMaintainBot {
     this.workspaceManager = new WorkspaceManager()
     this.codexClient = new CodexClient({
       apiKey: config.codexApiKey,
+      maxSteps: config.codexMaxSteps,
+      maxExecutionTime: config.codexMaxExecutionTime,
     })
 
     // Initialize new architecture components
     this.database = new TaskDatabase('./data/tasks.db')
     this.taskStore = new TaskStore(this.database, undefined, 5 * 60 * 1000) // 5 min lock lease
     this.retryManager = new RetryManager(1000, 60000, 0.1) // 1s base, 60s max, 10% jitter
+
+    // Initialize Codex job management
+    this.codexJobStore = new CodexJobStore(this.database)
+    this.codexJobStore.initSchema()
+    this.codexJobManager = new CodexJobManager(this.codexJobStore)
+    this.codexClient.setJobManager(this.codexJobManager)
+
     this.workflowEngine = new WorkflowEngine(
       this.taskStore,
       this.workspaceManager,
@@ -77,6 +90,10 @@ export class GitHubMaintainBot {
     consola.debug('Log level set to:', this.config.logLevel, '(level:', level, ')')
     this.isRunning = true
     this.status.isRunning = true
+
+    // Recover orphaned Codex jobs
+    consola.info('Recovering orphaned Codex jobs...')
+    await this.codexJobManager.recoverJobs()
 
     // Start the worker
     await this.worker.start()

@@ -1,5 +1,6 @@
 import { spawn } from 'child_process'
 import { consola } from 'consola'
+import { CodexJobManager } from '../core/codex-job-manager'
 
 export interface CodexOptions {
   apiKey?: string
@@ -7,6 +8,8 @@ export interface CodexOptions {
   provider?: string
   baseURL?: string
   nonInteractive?: boolean
+  maxExecutionTime?: number // Max execution time in seconds (default: 1800 = 30 min)
+  maxSteps?: number // Max agent iterations to prevent token drain (default: 50)
 }
 
 export interface JobStatus {
@@ -26,44 +29,90 @@ export interface ExecuteResult {
 
 export class CodexClient {
   private options: CodexOptions
-  private jobStatusCache: Map<string, JobStatus> = new Map()
+  private jobManager?: CodexJobManager
 
   constructor(options: CodexOptions = {}) {
     this.options = {
       nonInteractive: true,
+      maxExecutionTime: 1800, // 30 minutes default
+      maxSteps: 50, // Default max iterations to prevent token drain
       ...options,
     }
   }
 
   /**
-   * Execute codex with job tracking support
+   * Set the job manager for async execution
+   */
+  setJobManager(jobManager: CodexJobManager): void {
+    this.jobManager = jobManager
+  }
+
+  /**
+   * Execute codex with job tracking support (async background execution)
    */
   async executeWithJobTracking(prompt: string, context?: string, workingDir?: string): Promise<ExecuteResult> {
-    const result = await this.execute(prompt, context, workingDir)
-    // For now, codex runs synchronously, so no job ID
-    // In the future, if codex supports async jobs, this would return a job ID
-    return {
-      ...result,
-      jobId: undefined,
+    if (!this.jobManager) {
+      // Fallback to synchronous execution if no job manager
+      consola.warn('No job manager set, falling back to synchronous execution')
+      const result = await this.execute(prompt, context, workingDir)
+      return {
+        ...result,
+        jobId: undefined,
+      }
+    }
+
+    // Start async job
+    try {
+      const fullPrompt = context ? `${prompt}\n\nContext: ${context}` : prompt
+
+      const jobId = await this.jobManager.startJob({
+        prompt: fullPrompt,
+        workingDir,
+        codexOptions: this.options,
+        maxExecutionTime: this.options.maxExecutionTime,
+      })
+
+      return {
+        success: true,
+        output: '',
+        jobId,
+      }
+    } catch (error) {
+      consola.error('Failed to start Codex job:', error)
+      return {
+        success: false,
+        output: '',
+        error: (error as Error).message,
+        jobId: undefined,
+      }
     }
   }
 
   /**
    * Get the status of a codex job
-   * For now, this is a stub as codex runs synchronously
    */
   async getJobStatus(jobId: string): Promise<JobStatus> {
-    // Check cache first
-    if (this.jobStatusCache.has(jobId)) {
-      return this.jobStatusCache.get(jobId)!
+    if (!this.jobManager) {
+      throw new Error('No job manager configured')
     }
 
-    // Try to query codex status
-    // This would use `codex status <jobId>` if that command exists
-    // For now, assume completed
-    return {
-      completed: true,
-      failed: false,
+    try {
+      const status = await this.jobManager.getJobStatus(jobId)
+
+      return {
+        completed: status.state === 'completed',
+        failed: status.state === 'failed' || status.state === 'killed',
+        error: status.error,
+        // TODO: Parse files modified from output if needed
+        filesModified: undefined,
+      }
+    } catch (error) {
+      consola.error(`Failed to get job status for ${jobId}:`, error)
+      return {
+        completed: false,
+        failed: true,
+        error: (error as Error).message,
+      }
     }
   }
 
@@ -83,6 +132,11 @@ export class CodexClient {
       // Set working directory if provided
       if (workingDir) {
         args.push('--cd', workingDir)
+      }
+
+      // Add max steps configuration to prevent token drain
+      if (this.options.maxSteps) {
+        args.push('--config', `agent.max_iterations=${this.options.maxSteps}`)
       }
 
       args.push(prompt)

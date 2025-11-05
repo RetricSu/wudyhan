@@ -74,6 +74,8 @@ export class ConfigManager {
       interval: parseInt(process.env.BOT_INTERVAL || '300000'),
       maxConcurrent: parseInt(process.env.BOT_MAX_CONCURRENT || '3'),
       logLevel: (process.env.BOT_LOG_LEVEL as BotConfig['logLevel']) || 'info',
+      codexMaxSteps: parseInt(process.env.CODEX_MAX_STEPS || '50'),
+      codexMaxExecutionTime: parseInt(process.env.CODEX_MAX_EXECUTION_TIME || '1800'),
     } as BotConfig
   }
 

@@ -57,6 +57,8 @@ GITHUB_TOKEN=ghp_your_github_token_here
 
 # Codex AI Configuration (optional)
 CODEX_API_KEY=your_codex_api_key_here
+CODEX_MAX_STEPS=50                    # Max agent iterations to prevent token drain (default: 50)
+CODEX_MAX_EXECUTION_TIME=1800         # Max execution time in seconds (default: 1800 = 30 min)
 
 # Bot Configuration
 MAX_CONCURRENT=3
