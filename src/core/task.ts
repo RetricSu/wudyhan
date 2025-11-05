@@ -95,7 +95,7 @@ export interface Task {
   createdAt: string
   updatedAt: string
   // Command system fields (Phase 2)
-  commandState?: 'paused' | 'stopped' | null
+  commandState?: 'paused' | 'stopped' | 'resume_requested' | null
   pauseRequested?: boolean
   lastCommentCheckAt?: string | null
 }

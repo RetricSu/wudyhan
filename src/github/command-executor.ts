@@ -31,8 +31,9 @@ export interface CommandResult {
 const VALID_TRANSITIONS: Record<BotCommand, TaskState[]> = {
   stop: ['pending', 'in_progress', 'waiting_feedback', 'paused'],
   pause: ['in_progress', 'waiting_feedback'],
-  continue: ['in_progress', 'waiting_feedback'], // Can continue from paused (commandState='paused') or waiting_feedback
-  retry: ['failed', 'dead_letter', 'waiting_feedback'], // Can retry after failure or to regenerate code
+  continue: ['in_progress', 'waiting_feedback'], // Smart continue: resume if has session, else restart
+  approve: ['waiting_feedback'], // Direct approve: skip codex and commit
+  retry: ['failed', 'dead_letter', 'waiting_feedback'], // Full retry: clear checkpoints and restart
   status: ['pending', 'in_progress', 'waiting_feedback', 'paused', 'stopped', 'completed', 'failed', 'dead_letter'],
   help: ['pending', 'in_progress', 'waiting_feedback', 'paused', 'stopped', 'completed', 'failed', 'dead_letter'],
 }
@@ -149,6 +150,9 @@ export class CommandExecutor {
       case 'continue':
         return this.executeContinue(task)
 
+      case 'approve':
+        return this.executeApprove(task)
+
       case 'retry':
         return this.executeRetry(task)
 
@@ -199,20 +203,44 @@ export class CommandExecutor {
   }
 
   /**
-   * Continue command: Clear pause flag or approve code generation
+   * Continue command: Smart continuation - resume if session exists, else restart with feedback
    */
   private async executeContinue(task: Task): Promise<CommandResult> {
-    // If in waiting_feedback state, move to next step (commit_and_push)
+    // If in waiting_feedback state, intelligently decide whether to resume or restart
     if (task.state === 'waiting_feedback') {
-      this.taskStore.updateTask(task.id, {
-        state: 'in_progress',
-        currentStep: 'commit_and_push',
-      })
+      const codexCheckpoint = task.checkpoints.codex_generate
+      
+      // Check if we have a session ID to resume from
+      if (codexCheckpoint?.jobId) {
+        // Mark as ready to resume - the workflow will handle the resume logic
+        this.taskStore.updateTask(task.id, {
+          state: 'in_progress',
+          currentStep: 'codex_generate', // Go back to codex_generate to resume
+        })
+        this.taskStore.updateCommandState(task.id, 'resume_requested')
 
-      consola.info(`Task ${task.id} approved - moving to commit and push`)
-      return {
-        success: true,
-        message: `✅ Code changes approved! Moving to commit and push phase.`,
+        consola.info(`Task ${task.id} will resume codex session with feedback`)
+        return {
+          success: true,
+          message: `🔄 Resuming AI session with your feedback...`,
+        }
+      } else {
+        // No session, need to restart from scratch
+        const clearedCheckpoints = { ...task.checkpoints }
+        delete clearedCheckpoints.codex_generate
+        delete clearedCheckpoints.post_results
+
+        this.taskStore.updateTask(task.id, {
+          state: 'in_progress',
+          currentStep: 'codex_generate',
+          checkpoints: clearedCheckpoints,
+        })
+
+        consola.info(`Task ${task.id} restarting codex with feedback (no session to resume)`)
+        return {
+          success: true,
+          message: `🔄 Restarting AI with your feedback...`,
+        }
       }
     }
 
@@ -220,10 +248,35 @@ export class CommandExecutor {
     this.taskStore.setPauseRequested(task.id, false)
     this.taskStore.updateCommandState(task.id, null)
 
-    consola.info(`Task ${task.id} resumed`)
+    consola.info(`Task ${task.id} resumed from pause`)
     return {
       success: true,
       message: `▶️ Task resumed. The task will continue execution.`,
+    }
+  }
+
+  /**
+   * Approve command: Directly approve current changes and move to commit
+   */
+  private async executeApprove(task: Task): Promise<CommandResult> {
+    if (task.state !== 'waiting_feedback') {
+      return {
+        success: false,
+        message: `❌ Can only approve when waiting for feedback. Current state: ${task.state}`,
+        error: 'invalid_state',
+      }
+    }
+
+    // Move directly to commit_and_push without regenerating
+    this.taskStore.updateTask(task.id, {
+      state: 'in_progress',
+      currentStep: 'commit_and_push',
+    })
+
+    consola.info(`Task ${task.id} approved - moving to commit and push`)
+    return {
+      success: true,
+      message: `✅ Changes approved! Moving to commit and create PR.`,
     }
   }
 

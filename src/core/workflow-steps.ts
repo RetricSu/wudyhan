@@ -225,6 +225,104 @@ export async function codexGenerateStep(ctx: StepContext): Promise<StepResult> {
       return { success: true }
     }
 
+    // Handle resume request from user command
+    if (ctx.task.commandState === 'resume_requested' && codexCheckpoint?.jobId) {
+      consola.info(`[Task ${ctx.task.id}] Resume requested for job ${codexCheckpoint.jobId}`)
+      
+      // Collect feedbacks
+      const feedbacks = await getFeedbacks(ctx)
+      const feedbackPrompt = feedbacks.length > 0 
+        ? `User feedback:\n${feedbacks.map((f, i) => `${i + 1}. ${f}`).join('\n')}\n\nPlease continue and address the above feedback.`
+        : undefined
+
+      try {
+        // Get the old job to find session ID
+        const oldJobStatus = await ctx.codexClient.getJobStatus(codexCheckpoint.jobId)
+        
+        if (!oldJobStatus.sessionId) {
+          consola.warn(`[Task ${ctx.task.id}] No session ID found, cannot resume. Starting fresh instead.`)
+          // Clear checkpoint and let it restart below
+          const clearedCheckpoints = { ...ctx.task.checkpoints }
+          delete clearedCheckpoints.codex_generate
+          delete clearedCheckpoints.post_results
+          
+          ctx.taskStore.updateTask(ctx.task.id, {
+            checkpoints: clearedCheckpoints,
+          })
+          ctx.taskStore.updateCommandState(ctx.task.id, null)
+          
+          // Fall through to normal start logic
+          codexCheckpoint = undefined
+        } else {
+          // Resume the job with feedback
+          const repoDir = await ctx.workspaceManager.cloneRepository(owner, repo)
+          if (!repoDir) {
+            return {
+              success: false,
+              error: 'Failed to access repository',
+              shouldRetry: true,
+            }
+          }
+
+          const branchName = ctx.task.checkpoints.branch?.name
+          if (!branchName) {
+            return {
+              success: false,
+              error: 'Branch name not found in checkpoints',
+              shouldRetry: false,
+            }
+          }
+
+          const switched = await ctx.workspaceManager.switchBranch(repoDir, branchName)
+          if (!switched) {
+            return {
+              success: false,
+              error: 'Failed to switch to task branch',
+              shouldRetry: true,
+            }
+          }
+
+          const newJobId = await ctx.codexClient.resumeJob(codexCheckpoint.jobId, feedbackPrompt)
+          
+          // Update checkpoint with new job ID
+          const checkpoints: TaskCheckpoints = {
+            ...ctx.task.checkpoints,
+            codex_generate: {
+              jobId: newJobId,
+              startedAt: new Date().toISOString(),
+            },
+          }
+
+          ctx.taskStore.updateTask(ctx.task.id, {
+            checkpoints,
+          })
+          ctx.taskStore.updateCommandState(ctx.task.id, null)
+
+          consola.info(`[Task ${ctx.task.id}] Codex job resumed: ${newJobId}`)
+          
+          return {
+            success: false,
+            error: 'Codex job resumed, waiting for completion',
+            shouldRetry: true,
+            isPolling: true,
+          }
+        }
+      } catch (error) {
+        consola.error(`[Task ${ctx.task.id}] Failed to resume codex job:`, error)
+        // Clear the resume request and try fresh start
+        ctx.taskStore.updateCommandState(ctx.task.id, null)
+        const clearedCheckpoints = { ...ctx.task.checkpoints }
+        delete clearedCheckpoints.codex_generate
+        delete clearedCheckpoints.post_results
+        
+        ctx.taskStore.updateTask(ctx.task.id, {
+          checkpoints: clearedCheckpoints,
+        })
+        codexCheckpoint = undefined
+        // Fall through to normal start
+      }
+    }
+
     // If job ID exists, check status (don't clone/pull while polling)
     if (codexCheckpoint?.jobId) {
       consola.debug(`[Task ${ctx.task.id}] Checking status of codex job ${codexCheckpoint.jobId}`)
@@ -492,6 +590,12 @@ function buildResultsComment(params: {
     comment += `\n`
   }
 
+  // Add AI summary if available
+  if (codexCheckpoint?.aiSummary) {
+    comment += `### 🤖 AI Summary\n\n`
+    comment += `${codexCheckpoint.aiSummary}\n\n`
+  }
+
   comment += `### 📝 Files Modified (${filesChanged.length})\n\n`
   if (filesChanged.length > 0) {
     filesChanged.slice(0, 10).forEach((file) => {
@@ -516,11 +620,13 @@ function buildResultsComment(params: {
 
   comment += `### ✅ Next Steps\n\n`
   comment += `Please review the changes and choose an action:\n\n`
-  comment += `- **Approve and continue:** \`@bot continue\` or \`@bot approve\` - Create a PR with these changes\n`
-  comment += `- **Request changes:** \`@bot feedback <your feedback>\` then \`@bot retry\` - AI will regenerate with your feedback\n`
+  comment += `- **Continue with feedback:** \`@bot continue\` - Resume AI session with your feedback (or restart if no session)\n`
+  comment += `- **Approve directly:** \`@bot approve\` - Skip AI and commit current changes as-is\n`
+  comment += `- **Full retry:** \`@bot retry\` - Completely restart from scratch with feedback\n`
   comment += `- **Pause:** \`@bot pause\` - Pause this task for later\n`
   comment += `- **Stop:** \`@bot stop\` - Cancel this task\n`
-  comment += `- **Check status:** \`@bot status\` - View current task details\n`
+  comment += `- **Check status:** \`@bot status\` - View current task details\n\n`
+  comment += `💡 **Tip:** Use \`@bot feedback <your message>\` before any command to provide guidance to the AI.\n`
 
   return comment
 }

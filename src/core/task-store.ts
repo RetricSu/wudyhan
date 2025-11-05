@@ -422,7 +422,7 @@ export class TaskStore {
   /**
    * Update command state (for pause/stop)
    */
-  updateCommandState(taskId: string, commandState: 'paused' | 'stopped' | null): boolean {
+  updateCommandState(taskId: string, commandState: 'paused' | 'stopped' | 'resume_requested' | null): boolean {
     const now = new Date().toISOString()
     const stmt = this.db.prepare(`
       UPDATE tasks 
@@ -542,7 +542,7 @@ export class TaskStore {
       createdAt: row.created_at as string,
       updatedAt: row.updated_at as string,
       // Command system fields
-      commandState: row.command_state as 'paused' | 'stopped' | null | undefined,
+      commandState: row.command_state as 'paused' | 'stopped' | 'resume_requested' | null | undefined,
       pauseRequested: Boolean(row.pause_requested),
       lastCommentCheckAt: row.last_comment_check_at as string | null | undefined,
     }

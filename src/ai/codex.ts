@@ -19,6 +19,7 @@ export interface JobStatus {
   commitSha?: string
   filesModified?: string[]
   aiSummary?: string // AI's summary of what was done
+  sessionId?: string // Codex session ID for resume capability
 }
 
 export interface ExecuteResult {
@@ -106,6 +107,7 @@ export class CodexClient {
         error: status.error,
         filesModified: status.filesModified,
         aiSummary: status.aiSummary,
+        sessionId: status.sessionId,
       }
     } catch (error) {
       consola.error(`Failed to get job status for ${jobId}:`, error)
@@ -114,6 +116,22 @@ export class CodexClient {
         failed: true,
         error: (error as Error).message,
       }
+    }
+  }
+
+  /**
+   * Resume a codex job from a previous session
+   */
+  async resumeJob(jobId: string, feedbackPrompt?: string): Promise<string> {
+    if (!this.jobManager) {
+      throw new Error('No job manager configured')
+    }
+
+    try {
+      return await this.jobManager.resumeJob(jobId, feedbackPrompt)
+    } catch (error) {
+      consola.error(`Failed to resume job ${jobId}:`, error)
+      throw error
     }
   }
 

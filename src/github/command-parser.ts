@@ -2,7 +2,7 @@
  * Command Parser: Extracts and validates bot commands from GitHub comments
  */
 
-export type BotCommand = 'stop' | 'pause' | 'continue' | 'retry' | 'status' | 'help'
+export type BotCommand = 'stop' | 'pause' | 'continue' | 'approve' | 'retry' | 'status' | 'help'
 
 export interface ParsedCommand {
   command: BotCommand
@@ -21,7 +21,7 @@ const COMMAND_ALIASES: Record<string, BotCommand> = {
   hold: 'pause',
   continue: 'continue',
   resume: 'continue',
-  approve: 'continue', // Approve is same as continue
+  approve: 'approve', // Approve is now separate from continue
   retry: 'retry',
   restart: 'retry',
   status: 'status',

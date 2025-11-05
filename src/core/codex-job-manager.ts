@@ -260,7 +260,7 @@ export class CodexJobManager {
   /**
    * Resume a failed/killed job using Codex session
    */
-  async resumeJob(jobId: string): Promise<string> {
+  async resumeJob(jobId: string, feedbackPrompt?: string): Promise<string> {
     const job = this.jobStore.getJob(jobId)
     if (!job) {
       throw new Error(`Job ${jobId} not found`)
@@ -270,7 +270,7 @@ export class CodexJobManager {
       throw new Error(`Job ${jobId} has no session ID, cannot resume`)
     }
 
-    consola.info(`[Job ${jobId}] Resuming from session ${job.sessionId}`)
+    consola.info(`[Job ${jobId}] Resuming from session ${job.sessionId}${feedbackPrompt ? ' with feedback' : ''}`)
 
     // Create new job for the resume
     const newJobId = uuidv4()
@@ -289,6 +289,11 @@ export class CodexJobManager {
 
     if (job.workingDir) {
       args.push('--cd', job.workingDir)
+    }
+
+    // Add feedback prompt if provided
+    if (feedbackPrompt) {
+      args.push(feedbackPrompt)
     }
 
     // Spawn the resume process
@@ -323,7 +328,7 @@ export class CodexJobManager {
       sessionId: job.sessionId, // Reuse same session
       pid,
       state: 'resuming',
-      prompt: `[RESUMED] ${job.prompt}`,
+      prompt: feedbackPrompt ? `[RESUMED with feedback] ${job.prompt}` : `[RESUMED] ${job.prompt}`,
       workingDir: job.workingDir,
       options: job.options,
       stdoutPath,
@@ -431,27 +436,50 @@ export class CodexJobManager {
     this.activeProcesses.delete(jobId)
 
     if (code === 0) {
-      // Success
-      this.readJobOutput(job).then((output) => {
-        const aiSummary = this.extractLastAgentMessage(job)
-        this.jobStore.updateJob(jobId, {
-          state: 'completed',
-          exitCode: code,
-          output,
-          aiSummary,
-          completedAt: new Date().toISOString(),
+      // Success - extract AI summary immediately before async operations
+      const aiSummary = this.extractLastAgentMessage(job)
+      
+      this.readJobOutput(job)
+        .then((output) => {
+          this.jobStore.updateJob(jobId, {
+            state: 'completed',
+            exitCode: code,
+            output,
+            aiSummary,
+            completedAt: new Date().toISOString(),
+          })
         })
-      })
+        .catch((error) => {
+          consola.error(`[Job ${jobId}] Failed to read output:`, error)
+          // Still mark as completed with aiSummary even if output reading fails
+          this.jobStore.updateJob(jobId, {
+            state: 'completed',
+            exitCode: code,
+            output: '',
+            aiSummary,
+            completedAt: new Date().toISOString(),
+          })
+        })
     } else {
       // Failure
-      this.readJobError(job).then((error) => {
-        this.jobStore.updateJob(jobId, {
-          state: 'failed',
-          exitCode: code || undefined,
-          error: error || `Process exited with code ${code}`,
-          completedAt: new Date().toISOString(),
+      this.readJobError(job)
+        .then((error) => {
+          this.jobStore.updateJob(jobId, {
+            state: 'failed',
+            exitCode: code || undefined,
+            error: error || `Process exited with code ${code}`,
+            completedAt: new Date().toISOString(),
+          })
         })
-      })
+        .catch((readError) => {
+          consola.error(`[Job ${jobId}] Failed to read error:`, readError)
+          this.jobStore.updateJob(jobId, {
+            state: 'failed',
+            exitCode: code || undefined,
+            error: `Process exited with code ${code}`,
+            completedAt: new Date().toISOString(),
+          })
+        })
     }
   }
 

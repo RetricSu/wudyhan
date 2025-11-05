@@ -71,7 +71,7 @@ export class ConfigManager {
       githubToken,
       repositories,
       codexApiKey: process.env.CODEX_API_KEY,
-      codexProfile: process.env.CODEX_PROFILE || 'k2',
+      codexProfile: process.env.CODEX_PROFILE,
       interval: parseInt(process.env.BOT_INTERVAL || '300000'),
       maxConcurrent: parseInt(process.env.BOT_MAX_CONCURRENT || '3'),
       logLevel: (process.env.BOT_LOG_LEVEL as BotConfig['logLevel']) || 'info',
