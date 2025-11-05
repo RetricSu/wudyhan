@@ -19,7 +19,7 @@ export class WorkspaceManager {
     }
   }
 
-  async cloneRepository(owner: string, repo: string, branch: string = 'main'): Promise<string | null> {
+  async cloneRepository(owner: string, repo: string, branch?: string): Promise<string | null> {
     // Ensure workspace directory exists first
     await this.ensureWorkspaceDir()
 
@@ -30,11 +30,14 @@ export class WorkspaceManager {
       await fs.access(repoDir)
       consola.info(`Repository ${owner}/${repo} already exists, pulling latest changes...`)
 
+      // Detect default branch if not specified
+      const targetBranch = branch || (await this.getRemoteDefaultBranch(repoDir))
+
       // Check if the repository has any commits
       try {
         await this.runGitCommand(repoDir, ['rev-parse', 'HEAD'])
         // Has commits, safe to pull
-        await this.runGitCommand(repoDir, ['pull', 'origin', branch])
+        await this.runGitCommand(repoDir, ['pull', 'origin', targetBranch])
       } catch {
         // Empty repo, just skip pull
         consola.info('Repository is empty, skipping pull')
@@ -46,15 +49,18 @@ export class WorkspaceManager {
       consola.info(`Cloning repository ${owner}/${repo}...`)
       await this.runGitCommand(this.baseDir, ['clone', `https://github.com/${owner}/${repo}.git`, `${owner}-${repo}`])
 
+      // Detect default branch if not specified
+      const targetBranch = branch || (await this.getRemoteDefaultBranch(repoDir))
+
       // Check if the cloned repo has any commits
       try {
         await this.runGitCommand(repoDir, ['rev-parse', 'HEAD'])
         // Has commits, checkout the branch
-        await this.runGitCommand(repoDir, ['checkout', branch])
+        await this.runGitCommand(repoDir, ['checkout', targetBranch])
       } catch {
         // Empty repo, create initial branch
         consola.info('Repository is empty, creating initial branch')
-        await this.runGitCommand(repoDir, ['checkout', '-b', branch])
+        await this.runGitCommand(repoDir, ['checkout', '-b', targetBranch])
       }
 
       return repoDir
@@ -85,6 +91,7 @@ export class WorkspaceManager {
 
   /**
    * Get the default branch from remote repository
+   * Tries to detect the actual default branch (main/master/etc)
    */
   async getRemoteDefaultBranch(repoDir: string): Promise<string> {
     try {
@@ -94,9 +101,38 @@ export class WorkspaceManager {
         return match[1].trim()
       }
     } catch (error) {
-      consola.warn('Failed to detect default branch from remote, using main:', error)
+      consola.warn('Failed to detect default branch from remote, trying fallback methods:', error)
     }
-    return 'main'
+
+    // Fallback: try to detect from symbolic-ref
+    try {
+      const symbolicRef = await this.runGitCommand(repoDir, ['symbolic-ref', 'refs/remotes/origin/HEAD'])
+      const match = symbolicRef.match(/refs\/remotes\/origin\/(.+)/)
+      if (match && match[1]) {
+        consola.info(`Detected default branch via symbolic-ref: ${match[1]}`)
+        return match[1].trim()
+      }
+    } catch (error) {
+      consola.warn('Failed to detect default branch from symbolic-ref:', error)
+    }
+
+    // Last resort: check which branch exists (main vs master)
+    try {
+      // Try main first
+      await this.runGitCommand(repoDir, ['rev-parse', '--verify', 'origin/main'])
+      consola.info('Detected default branch: main')
+      return 'main'
+    } catch {
+      // Try master
+      try {
+        await this.runGitCommand(repoDir, ['rev-parse', '--verify', 'origin/master'])
+        consola.info('Detected default branch: master')
+        return 'master'
+      } catch {
+        consola.warn('Could not detect default branch, using main as ultimate fallback')
+        return 'main'
+      }
+    }
   }
 
   async getCurrentBranch(repoDir: string): Promise<string> {
@@ -110,8 +146,9 @@ export class WorkspaceManager {
         const branch = await this.runGitCommand(repoDir, ['symbolic-ref', '--short', 'HEAD'])
         return branch
       } catch (error) {
-        consola.warn('Could not determine current branch, using main as fallback')
-        return 'main' // fallback
+        consola.warn('Could not determine current branch, detecting from remote')
+        // Use the remote default branch detection
+        return await this.getRemoteDefaultBranch(repoDir)
       }
     }
   }
