@@ -239,6 +239,7 @@ export async function codexGenerateStep(ctx: StepContext): Promise<StepResult> {
             completedAt: new Date().toISOString(),
             commitSha: status.commitSha,
             filesModified: status.filesModified,
+            aiSummary: status.aiSummary,
           },
         }
 
@@ -728,7 +729,12 @@ export async function createPRStep(ctx: StepContext): Promise<StepResult> {
 
     // Create new PR
     const title = `🤖 Fix for issue #${ctx.task.issueNumber}: ${ctx.issue.title}`
-    const body = `Fixes #${ctx.task.issueNumber}\n\n${ctx.task.checkpoints.plan?.description || ''}`
+
+    // Use AI summary if available, otherwise fall back to plan description
+    const aiSummary = ctx.task.checkpoints.codex_generate?.aiSummary
+    const body = aiSummary
+      ? `Fixes #${ctx.task.issueNumber}\n\n## AI Summary\n\n${aiSummary}`
+      : `Fixes #${ctx.task.issueNumber}\n\n${ctx.task.checkpoints.plan?.description || ''}`
 
     const pr = await ctx.githubClient.createPullRequest(owner, repo, {
       head: branchName,

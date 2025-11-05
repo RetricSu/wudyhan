@@ -26,6 +26,7 @@ export interface CodexJob {
   exitCode?: number
   error?: string
   output?: string
+  aiSummary?: string // Last agent message - AI's summary of what was done
 
   // Timestamps
   startedAt: string
@@ -65,6 +66,7 @@ export class CodexJobStore {
         exit_code INTEGER,
         error TEXT,
         output TEXT,
+        ai_summary TEXT,
         
         started_at TEXT NOT NULL,
         completed_at TEXT,
@@ -94,10 +96,10 @@ export class CodexJobStore {
         job_id, session_id, pid, state,
         prompt, working_dir, options,
         stdout_path, stderr_path, jsonl_path,
-        exit_code, error, output,
+        exit_code, error, output, ai_summary,
         started_at, completed_at, last_heartbeat,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
 
     this.db
@@ -117,6 +119,7 @@ export class CodexJobStore {
         fullJob.exitCode || null,
         fullJob.error || null,
         fullJob.output || null,
+        fullJob.aiSummary || null,
         fullJob.startedAt,
         fullJob.completedAt || null,
         fullJob.lastHeartbeat || null,
@@ -225,6 +228,7 @@ export class CodexJobStore {
       exitCode: row.exitCode || undefined,
       error: row.error || undefined,
       output: row.output || undefined,
+      aiSummary: row.aiSummary || undefined,
       completedAt: row.completedAt || undefined,
       lastHeartbeat: row.lastHeartbeat || undefined,
       workingDir: row.workingDir || undefined,

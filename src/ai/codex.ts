@@ -18,6 +18,7 @@ export interface JobStatus {
   error?: string
   commitSha?: string
   filesModified?: string[]
+  aiSummary?: string // AI's summary of what was done
 }
 
 export interface ExecuteResult {
@@ -103,8 +104,8 @@ export class CodexClient {
         completed: status.state === 'completed',
         failed: status.state === 'failed' || status.state === 'killed',
         error: status.error,
-        // TODO: Parse files modified from output if needed
-        filesModified: undefined,
+        filesModified: status.filesModified,
+        aiSummary: status.aiSummary,
       }
     } catch (error) {
       consola.error(`Failed to get job status for ${jobId}:`, error)

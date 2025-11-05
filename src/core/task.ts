@@ -43,6 +43,7 @@ export interface TaskCheckpoints {
     completedAt?: string
     commitSha?: string
     filesModified?: string[]
+    aiSummary?: string // AI's summary of what was done
   }
 
   // Post results step - show changes to user and wait for approval

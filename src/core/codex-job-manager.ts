@@ -24,6 +24,7 @@ export interface JobStatusResult {
   output?: string
   sessionId?: string
   filesModified?: string[]
+  aiSummary?: string // Last agent message (AI's summary of what was done)
 }
 
 export class CodexJobManager {
@@ -180,6 +181,7 @@ export class CodexJobManager {
         error: job.error,
         output: job.output,
         sessionId: job.sessionId,
+        aiSummary: job.aiSummary,
       }
     }
 
@@ -431,10 +433,12 @@ export class CodexJobManager {
     if (code === 0) {
       // Success
       this.readJobOutput(job).then((output) => {
+        const aiSummary = this.extractLastAgentMessage(job)
         this.jobStore.updateJob(jobId, {
           state: 'completed',
           exitCode: code,
           output,
+          aiSummary,
           completedAt: new Date().toISOString(),
         })
       })
@@ -545,6 +549,38 @@ export class CodexJobManager {
       }
     } catch (error) {
       consola.error('Failed to read job output:', error)
+    }
+    return undefined
+  }
+
+  /**
+   * Extract the last agent message (AI summary) from job output
+   */
+  private extractLastAgentMessage(job: CodexJob): string | undefined {
+    try {
+      if (!fs.existsSync(job.stdoutPath)) {
+        return undefined
+      }
+
+      const content = fs.readFileSync(job.stdoutPath, 'utf-8')
+      const lines = content.split('\n').filter((line) => line.trim())
+
+      // Look for the last agent_message from the end
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i]
+        if (!line) continue
+
+        try {
+          const event = JSON.parse(line)
+          if (event.type === 'item.completed' && event.item?.type === 'agent_message' && event.item?.text) {
+            return event.item.text
+          }
+        } catch {
+          // Skip invalid JSON lines
+        }
+      }
+    } catch (error) {
+      consola.error('Failed to extract last agent message:', error)
     }
     return undefined
   }
