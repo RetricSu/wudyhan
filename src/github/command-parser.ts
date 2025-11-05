@@ -67,6 +67,21 @@ export class CommandParser {
   }
 
   /**
+   * Parse feedback from comment
+   * @param text - The comment body text
+   * @returns Feedback message if found, null otherwise
+   */
+  parseFeedback(text: string): string | null {
+    if (!text) return null
+
+    // Match: @bot feedback <message>
+    const match = text.match(/@bot\s+feedback\s+(.+)/is)
+    if (!match || !match[1]) return null
+
+    return match[1].trim()
+  }
+
+  /**
    * Get help text for all commands
    */
   getHelpText(): string {
@@ -77,11 +92,13 @@ export class CommandParser {
 - \`@bot continue\` (or \`resume\`) - Resume a paused task
 - \`@bot retry\` (or \`restart\`) - Retry a failed task
 - \`@bot status\` - Get current task status
+- \`@bot feedback <message>\` - Provide feedback or guidance for the task
 - \`@bot help\` - Show this help message
 
 **Examples:**
 \`\`\`
 @bot pause
+@bot feedback Please use async/await instead of callbacks
 @bot continue
 @bot status
 \`\`\`

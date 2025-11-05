@@ -9,6 +9,7 @@ import { WorkspaceManager } from '../workspace/manager'
 import { CodexClient } from '../ai/codex'
 import { IssueManager } from '../github/issues'
 import { GitHubClient } from '../github/client'
+import { CommandParser } from '../github/command-parser'
 import { Issue } from './types'
 
 export interface StepContext {
@@ -160,7 +161,44 @@ export async function branchStep(ctx: StepContext): Promise<StepResult> {
 }
 
 /**
- * Step 3: Codex Generate - Run codex to generate code (long-running)
+ * Helper: Get all feedbacks from issue comments
+ */
+async function getFeedbacks(ctx: StepContext): Promise<string[]> {
+  try {
+    const [owner, repo] = ctx.task.repo.split('/')
+    if (!owner || !repo) return []
+
+    const comments = await ctx.githubClient.getIssueComments(owner, repo, ctx.task.issueNumber)
+    const parser = new CommandParser()
+
+    const feedbacks = comments
+      .map((comment) => parser.parseFeedback(comment.body))
+      .filter((f): f is string => f !== null)
+
+    return feedbacks
+  } catch (error) {
+    consola.error(`[Task ${ctx.task.id}] Failed to get feedbacks:`, error)
+    return []
+  }
+}
+
+/**
+ * Helper: Build prompt with feedbacks
+ */
+function buildPromptWithFeedback(baseTasks: string[], feedbacks: string[]): string {
+  let prompt = baseTasks.join('\n')
+
+  if (feedbacks.length > 0) {
+    prompt += '\n\n--- User Feedbacks ---\n'
+    prompt += feedbacks.map((f, i) => `${i + 1}. ${f}`).join('\n')
+    prompt += '\n\nPlease take the above feedbacks into account when implementing the solution.'
+  }
+
+  return prompt
+}
+
+/**
+ * Step 3: Codex Generate - Use AI to generate code changes
  */
 export async function codexGenerateStep(ctx: StepContext): Promise<StepResult> {
   try {
@@ -240,8 +278,14 @@ export async function codexGenerateStep(ctx: StepContext): Promise<StepResult> {
       }
     }
 
-    // Build prompt from tasks
-    const prompt = plan.tasks.join('\n')
+    // Collect feedbacks from issue comments
+    const feedbacks = await getFeedbacks(ctx)
+    if (feedbacks.length > 0) {
+      consola.info(`[Task ${ctx.task.id}] Found ${feedbacks.length} user feedback(s)`)
+    }
+
+    // Build prompt from tasks with feedbacks
+    const prompt = buildPromptWithFeedback(plan.tasks, feedbacks)
 
     // Execute codex
     const result = await ctx.codexClient.executeWithJobTracking(prompt, undefined, repoDir)

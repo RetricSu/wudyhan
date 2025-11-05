@@ -225,7 +225,42 @@ Aliases: `@bot restart`
 
 Retries a failed or dead-letter task. The task is reset to pending state.
 
-#### 📊 Get Task Status
+#### � Provide Feedback
+
+```
+@bot feedback <your message>
+```
+
+Provide guidance, suggestions, or corrections to help the bot improve its work.
+
+**When to use:**
+- Before the task starts - provide context or constraints
+- After stopping a task - explain what went wrong and how to fix it
+
+**Examples:**
+```
+@bot feedback Please use TypeScript strict mode
+@bot feedback Add error handling for network timeouts
+@bot feedback Follow the coding style in src/utils/example.ts
+@bot feedback The authentication should use OAuth2, not basic auth
+```
+
+**How it works:**
+- All feedbacks are collected from issue comments
+- When starting a new Codex job, all feedbacks are injected into the AI prompt
+- The AI takes your suggestions into account when generating code
+- Feedbacks persist in the issue - no need to repeat them
+
+**Best workflow:**
+```
+1. Task runs and generates code
+2. You notice an issue: @bot stop
+3. Add guidance: @bot feedback Use async/await instead of callbacks
+4. Restart: @bot retry
+5. Bot reads your feedback and regenerates code with your guidance
+```
+
+#### �📊 Get Task Status
 
 ```
 @bot status
