@@ -28,7 +28,7 @@ export class TaskDatabase {
     const currentVersion = this.getCurrentVersion()
     consola.info(`Current database version: ${currentVersion}`)
 
-    const migrations = [this.migration_v1, this.migration_v2, this.migration_v3, this.migration_v4]
+    const migrations = [this.migration_v1, this.migration_v2, this.migration_v3, this.migration_v4, this.migration_v5]
 
     for (let i = currentVersion; i < migrations.length; i++) {
       consola.info(`Running migration ${i + 1}...`)
@@ -185,6 +185,54 @@ export class TaskDatabase {
              worker_id, lock_expires_at, command_state, pause_requested, last_comment_check_at,
              created_at, updated_at
       FROM tasks;
+
+      -- Drop old table
+      DROP TABLE tasks;
+
+      -- Rename new table
+      ALTER TABLE tasks_new RENAME TO tasks;
+
+      -- Recreate indexes
+      CREATE INDEX IF NOT EXISTS idx_tasks_state ON tasks(state);
+      CREATE INDEX IF NOT EXISTS idx_tasks_fingerprint ON tasks(fingerprint);
+      CREATE INDEX IF NOT EXISTS idx_tasks_repo_issue ON tasks(repo, issue_number);
+      CREATE INDEX IF NOT EXISTS idx_tasks_worker ON tasks(worker_id);
+      CREATE INDEX IF NOT EXISTS idx_tasks_lock_expires ON tasks(lock_expires_at);
+      CREATE INDEX IF NOT EXISTS idx_tasks_next_retry ON tasks(next_retry_at);
+    `)
+  }
+
+  /**
+   * Migration v5: Add 'resume_requested' to command_state constraint
+   */
+  private migration_v5(): void {
+    this.db.exec(`
+      -- Create new table with updated command_state constraint
+      CREATE TABLE tasks_new (
+        id TEXT PRIMARY KEY,
+        issue_number INTEGER NOT NULL,
+        repo TEXT NOT NULL,
+        repo_head_sha TEXT NOT NULL,
+        fingerprint TEXT UNIQUE NOT NULL,
+        state TEXT NOT NULL CHECK(state IN ('pending', 'in_progress', 'waiting_feedback', 'paused', 'stopped', 'completed', 'failed', 'dead_letter')),
+        current_step TEXT,
+        checkpoints TEXT NOT NULL DEFAULT '{}',
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        max_retries INTEGER NOT NULL DEFAULT 5,
+        next_retry_at TEXT,
+        last_error TEXT,
+        worker_id TEXT,
+        lock_expires_at TEXT,
+        command_state TEXT DEFAULT NULL CHECK(command_state IS NULL OR command_state IN ('paused', 'stopped', 'resume_requested')),
+        pause_requested INTEGER DEFAULT 0,
+        last_comment_check_at TEXT DEFAULT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      -- Copy data from old table
+      INSERT INTO tasks_new 
+      SELECT * FROM tasks;
 
       -- Drop old table
       DROP TABLE tasks;

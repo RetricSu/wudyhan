@@ -216,8 +216,8 @@ export class CommandExecutor {
         this.taskStore.updateTask(task.id, {
           state: 'in_progress',
           currentStep: 'codex_generate', // Go back to codex_generate to resume
+          commandState: 'resume_requested', // Set command state in same update
         })
-        this.taskStore.updateCommandState(task.id, 'resume_requested')
 
         consola.info(`Task ${task.id} will resume codex session with feedback`)
         return {

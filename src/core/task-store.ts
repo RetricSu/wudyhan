@@ -289,6 +289,10 @@ export class TaskStore {
       fields.push('checkpoints = ?')
       values.push(JSON.stringify(updates.checkpoints))
     }
+    if (updates.commandState !== undefined) {
+      fields.push('command_state = ?')
+      values.push(updates.commandState)
+    }
 
     if (fields.length === 0) return false
 

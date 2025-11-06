@@ -133,10 +133,24 @@ export class CodexJobManager {
 
     // Set up process event handlers
     codex.on('exit', (code, signal) => {
-      this.handleProcessExit(jobId, code, signal)
+      // End streams first to ensure all data is flushed
       stdoutStream.end()
       stderrStream.end()
       jsonlStream.end()
+
+      // Wait for all streams to finish writing before processing exit
+      let finishedCount = 0
+      const onStreamFinish = () => {
+        finishedCount++
+        if (finishedCount === 3) {
+          // All streams finished, now we can safely read the files
+          this.handleProcessExit(jobId, code, signal)
+        }
+      }
+
+      stdoutStream.on('finish', onStreamFinish)
+      stderrStream.on('finish', onStreamFinish)
+      jsonlStream.on('finish', onStreamFinish)
     })
 
     codex.on('error', (error) => {
@@ -340,10 +354,24 @@ export class CodexJobManager {
     this.activeProcesses.set(newJobId, codex)
 
     codex.on('exit', (code, signal) => {
-      this.handleProcessExit(newJobId, code, signal)
+      // End streams first to ensure all data is flushed
       stdoutStream.end()
       stderrStream.end()
       jsonlStream.end()
+
+      // Wait for all streams to finish writing before processing exit
+      let finishedCount = 0
+      const onStreamFinish = () => {
+        finishedCount++
+        if (finishedCount === 3) {
+          // All streams finished, now we can safely read the files
+          this.handleProcessExit(newJobId, code, signal)
+        }
+      }
+
+      stdoutStream.on('finish', onStreamFinish)
+      stderrStream.on('finish', onStreamFinish)
+      jsonlStream.on('finish', onStreamFinish)
     })
 
     codex.on('error', (error) => {
@@ -438,9 +466,13 @@ export class CodexJobManager {
     if (code === 0) {
       // Success - extract AI summary immediately before async operations
       const aiSummary = this.extractLastAgentMessage(job)
+      consola.debug(
+        `[Job ${jobId}] Extracted AI summary: ${aiSummary ? `"${aiSummary.substring(0, 50)}..."` : 'undefined'}`,
+      )
 
       this.readJobOutput(job)
         .then((output) => {
+          consola.debug(`[Job ${jobId}] Updating job with aiSummary: ${aiSummary ? 'YES' : 'NO'}`)
           this.jobStore.updateJob(jobId, {
             state: 'completed',
             exitCode: code,
@@ -587,13 +619,15 @@ export class CodexJobManager {
   private extractLastAgentMessage(job: CodexJob): string | undefined {
     try {
       if (!fs.existsSync(job.stdoutPath)) {
+        consola.debug(`[Job ${job.jobId}] stdout file does not exist: ${job.stdoutPath}`)
         return undefined
       }
 
       const content = fs.readFileSync(job.stdoutPath, 'utf-8')
       const lines = content.split('\n').filter((line) => line.trim())
+      consola.debug(`[Job ${job.jobId}] Parsing ${lines.length} lines from stdout`)
 
-      // Look for the last agent_message from the end
+      // Look for the last agent_message with meaningful content from the end
       for (let i = lines.length - 1; i >= 0; i--) {
         const line = lines[i]
         if (!line) continue
@@ -601,12 +635,21 @@ export class CodexJobManager {
         try {
           const event = JSON.parse(line)
           if (event.type === 'item.completed' && event.item?.type === 'agent_message' && event.item?.text) {
-            return event.item.text
+            // Skip empty or whitespace-only messages
+            const text = event.item.text.trim()
+            if (text) {
+              consola.debug(`[Job ${job.jobId}] Found agent_message at line ${i}: "${text.substring(0, 50)}..."`)
+              return text
+            } else {
+              consola.debug(`[Job ${job.jobId}] Skipped empty agent_message at line ${i}`)
+            }
           }
         } catch {
           // Skip invalid JSON lines
         }
       }
+
+      consola.debug(`[Job ${job.jobId}] No agent_message found in ${lines.length} lines`)
     } catch (error) {
       consola.error('Failed to extract last agent message:', error)
     }

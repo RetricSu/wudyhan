@@ -136,13 +136,13 @@ export class CodexJobStore {
    */
   getJob(jobId: string): CodexJob | null {
     const query = `SELECT * FROM codex_jobs WHERE job_id = ?`
-    const row = this.db.getConnection().prepare(query).get(jobId) as CodexJob | undefined
+    const row = this.db.getConnection().prepare(query).get(jobId)
 
     if (!row) {
       return null
     }
 
-    return this.parseJobRow(row)
+    return this.parseJobRow(row as Record<string, unknown>)
   }
 
   /**
@@ -178,8 +178,8 @@ export class CodexJobStore {
    */
   getJobsByState(state: CodexJob['state']): CodexJob[] {
     const query = `SELECT * FROM codex_jobs WHERE state = ? ORDER BY created_at DESC`
-    const rows = this.db.getConnection().prepare(query).all(state) as CodexJob[]
-    return rows.map((row) => this.parseJobRow(row))
+    const rows = this.db.getConnection().prepare(query).all(state)
+    return rows.map((row) => this.parseJobRow(row as Record<string, unknown>))
   }
 
   /**
@@ -187,8 +187,8 @@ export class CodexJobStore {
    */
   getActiveJobs(): CodexJob[] {
     const query = `SELECT * FROM codex_jobs WHERE state IN ('running', 'resuming') ORDER BY created_at DESC`
-    const rows = this.db.getConnection().prepare(query).all() as CodexJob[]
-    return rows.map((row) => this.parseJobRow(row))
+    const rows = this.db.getConnection().prepare(query).all()
+    return rows.map((row) => this.parseJobRow(row as Record<string, unknown>))
   }
 
   /**
@@ -219,19 +219,27 @@ export class CodexJobStore {
     return deleted
   }
 
-  private parseJobRow(row: CodexJob): CodexJob {
+  private parseJobRow(row: Record<string, unknown>): CodexJob {
     return {
-      ...row,
-      pid: row.pid || undefined,
-      sessionId: row.sessionId || undefined,
-      jsonlPath: row.jsonlPath || undefined,
-      exitCode: row.exitCode || undefined,
-      error: row.error || undefined,
-      output: row.output || undefined,
-      aiSummary: row.aiSummary || undefined,
-      completedAt: row.completedAt || undefined,
-      lastHeartbeat: row.lastHeartbeat || undefined,
-      workingDir: row.workingDir || undefined,
+      jobId: row.job_id as string,
+      sessionId: (row.session_id as string | null) || undefined,
+      pid: (row.pid as number | null) || undefined,
+      state: row.state as 'running' | 'completed' | 'failed' | 'killed' | 'resuming',
+      prompt: row.prompt as string,
+      workingDir: (row.working_dir as string | null) || undefined,
+      options: row.options as string,
+      stdoutPath: row.stdout_path as string,
+      stderrPath: row.stderr_path as string,
+      jsonlPath: (row.jsonl_path as string | null) || undefined,
+      exitCode: (row.exit_code as number | null) || undefined,
+      error: (row.error as string | null) || undefined,
+      output: (row.output as string | null) || undefined,
+      aiSummary: (row.ai_summary as string | null) || undefined,
+      startedAt: row.started_at as string,
+      completedAt: (row.completed_at as string | null) || undefined,
+      lastHeartbeat: (row.last_heartbeat as string | null) || undefined,
+      createdAt: row.created_at as string,
+      updatedAt: row.updated_at as string,
     }
   }
 

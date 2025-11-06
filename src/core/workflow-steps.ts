@@ -220,12 +220,7 @@ export async function codexGenerateStep(ctx: StepContext): Promise<StepResult> {
     // Check if codex job is already running or completed
     let codexCheckpoint = ctx.task.checkpoints.codex_generate
 
-    if (codexCheckpoint?.completedAt) {
-      consola.debug('Codex generation already completed, skipping')
-      return { success: true }
-    }
-
-    // Handle resume request from user command
+    // Handle resume request from user command (check this FIRST before completedAt)
     if (ctx.task.commandState === 'resume_requested' && codexCheckpoint?.jobId) {
       consola.info(`[Task ${ctx.task.id}] Resume requested for job ${codexCheckpoint.jobId}`)
 
@@ -322,6 +317,12 @@ export async function codexGenerateStep(ctx: StepContext): Promise<StepResult> {
         codexCheckpoint = undefined
         // Fall through to normal start
       }
+    }
+
+    // Check if already completed (after resume check to allow resume even if completed)
+    if (codexCheckpoint?.completedAt) {
+      consola.debug('Codex generation already completed, skipping')
+      return { success: true }
     }
 
     // If job ID exists, check status (don't clone/pull while polling)
